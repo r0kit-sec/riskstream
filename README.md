@@ -63,6 +63,14 @@ Clean up:
 kubectl delete namespace local-dev
 ```
 
+## Roadmap
+
+- [X] GitOps CI/CD (Argo CD + Kustomize overlays)
+- [ ] Stream ingestion + normalization
+- [ ] Ranking API (baseline)
+- [ ] Evaluation + feedback loop
+- [ ] Continual training + monitoring
+
 ## Documentation
 
 - [**Architecture**](docs/ARCHITECTURE.md) - Kubernetes structure, namespaces, Argo CD behavior, image tagging
