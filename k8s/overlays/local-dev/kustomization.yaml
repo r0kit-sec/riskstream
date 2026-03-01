@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: local-dev
+
+resources:
+  - ../../base
+
+namePrefix: local-
+
+images:
+  - name: ghcr.io/r0kit-sec/riskstream
+    newName: riskstream
+    newTag: local
+
+patches:
+  - path: patch.yaml

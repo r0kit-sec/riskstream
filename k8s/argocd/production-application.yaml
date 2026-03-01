@@ -1,0 +1,14 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: riskstream-production
+  namespace: argocd
+spec:
+  project: riskstream
+  source:
+    repoURL: https://github.com/r0kit-sec/riskstream.git
+    targetRevision: main
+    path: k8s/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
