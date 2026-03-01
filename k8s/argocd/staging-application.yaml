@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: riskstream-staging
   namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: riskstream=ghcr.io/r0kit-sec/riskstream
+    argocd-image-updater.argoproj.io/riskstream.update-strategy: latest
+    argocd-image-updater.argoproj.io/riskstream.pull-secret: ghcr-secret
 spec:
   project: riskstream
   source:
