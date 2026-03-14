@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: threatfox-ingestion
+  labels:
+    app: threatfox-ingestion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: threatfox-ingestion
+  template:
+    metadata:
+      labels:
+        app: threatfox-ingestion
+    spec:
+      containers:
+        - name: threatfox-ingestion
+          image: ghcr.io/r0kit-sec/threatfox-ingestion:main
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+              name: http
+            - containerPort: 5678
+              name: debug
+          env:
+            - name: PORT
+              value: "8081"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: THREATFOX_AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: threatfox-secret
+                  key: auth-key
+            - name: DEBUG_MODE
+              value: "false"
+            - name: DEBUG_PORT
+              value: "5678"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20

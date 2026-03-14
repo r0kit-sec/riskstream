@@ -7,6 +7,8 @@ resources:
   - minio-deployment.yaml
   - minio-service.yaml
   - minio-init-job.yaml
+  - threatfox-ingestion-deployment.yaml
+  - threatfox-ingestion-service.yaml
 
 configMapGenerator:
   - name: minio-init-scripts
