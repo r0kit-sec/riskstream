@@ -11,7 +11,7 @@ persistence:
 grafana.ini:
   auth.anonymous:
     enabled: true
-    org_role: Viewer
+    org_role: Editor
   auth.basic:
     enabled: false
   users:
