@@ -9,6 +9,7 @@ on:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
+  THREATFOX_IMAGE_NAME: ghcr.io/itsbriany/threatfox-ingestion
 
 jobs:
   lint-and-test:
@@ -84,5 +85,25 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: ThreatFox Docker metadata
+        id: threatfox-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.THREATFOX_IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=main,enable={{is_default_branch}}
+
+      - name: Build ThreatFox (PR) / Build and push ThreatFox (main)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./riskstream/services/ingestion/threatfox/Dockerfile
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.threatfox-meta.outputs.tags }}
+          labels: ${{ steps.threatfox-meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
