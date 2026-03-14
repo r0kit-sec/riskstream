@@ -21,8 +21,6 @@ spec:
           ports:
             - containerPort: 8081
               name: http
-            - containerPort: 5678
-              name: debug
           env:
             - name: PORT
               value: "8081"
@@ -33,10 +31,6 @@ spec:
                 secretKeyRef:
                   name: threatfox-secret
                   key: auth-key
-            - name: DEBUG_MODE
-              value: "false"
-            - name: DEBUG_PORT
-              value: "5678"
           readinessProbe:
             httpGet:
               path: /healthz

@@ -51,8 +51,6 @@ docker run -e THREATFOX_AUTH_KEY=your-threatfox-auth-key -p 8081:8081 threatfox-
 - `PORT`: Service port (default: 8081)
 - `ENVIRONMENT`: Deployment environment (default: unknown)
 - `THREATFOX_AUTH_KEY`: ThreatFox API auth key required for upstream requests
-- `DEBUG_MODE`: Enable remote debugging with debugpy (default: false)
-- `DEBUG_PORT`: Debug port for debugpy (default: 5678)
 
 ## Kubernetes Secret Setup
 
@@ -83,68 +81,26 @@ kubectl create secret generic threatfox-secret \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-## Debugging in Kubernetes
+## Troubleshooting
 
-The ThreatFox service supports remote debugging via `debugpy` when running in the `local-dev` Kubernetes cluster.
-
-### Setup
-
-1. **Build the container image:**
-   ```bash
-   docker build -t threatfox-ingestion:local riskstream/services/ingestion/threatfox
-   ```
-
-2. **Import to k3s:**
-   ```bash
-   docker save threatfox-ingestion:local | sudo k3s ctr images import -
-   ```
-
-3. **Deploy to local-dev namespace:**
-   ```bash
-   kubectl create secret generic threatfox-secret \
-     --from-literal=auth-key='your-threatfox-auth-key' \
-     -n local-dev \
-     --dry-run=client -o yaml | kubectl apply -f -
-   kubectl apply -k k8s/overlays/local-dev
-   ```
-
-4. **Wait for pod to be ready:**
-   ```bash
-   kubectl wait --for=condition=ready pod -l app=threatfox-ingestion -n local-dev
-   ```
-
-5. **Port-forward the debug port:**
-   ```bash
-   kubectl port-forward -n local-dev svc/threatfox-ingestion 5678:5678
-   ```
-
-6. **Attach VS Code debugger:**
-   - Press `F5` in VS Code
-   - Select **"Attach to ThreatFox (K8s)"** from the dropdown
-   - Set breakpoints in your Python files
-
-The service will wait for the debugger to attach before starting when `DEBUG_MODE=true` (enabled by default in local-dev).
-
-### Testing Endpoints
-
-Once the debugger is attached, you can test the service:
+Use structured logs and tests as the primary troubleshooting workflow for ThreatFox:
 
 ```bash
-# Port-forward HTTP port (in another terminal)
-kubectl port-forward -n local-dev svc/threatfox-ingestion 8081:80
-
-# Test health endpoint
-curl http://localhost:8081/healthz
-
-# Test recent threats
-curl http://localhost:8081/recent
+# Follow ThreatFox logs in local-dev
+kubectl logs -n local-dev -l app=threatfox-ingestion -f
 ```
 
-### Troubleshooting
+For isolated behavior checks, run the ThreatFox unit tests:
 
-- **Pod not starting:** Check logs with `kubectl logs -n local-dev -l app=threatfox-ingestion`
-- **Can't attach debugger:** Ensure port-forward is running and port 5678 is not in use
-- **Breakpoints not hitting:** Verify path mappings in `.vscode/launch.json`
+```bash
+pytest riskstream/tests/unit/test_threatfox_ingestion.py -q
+```
+
+For service-level validation inside Kubernetes, run the in-cluster integration test:
+
+```bash
+./scripts/run-threatfox-integration-test.sh
+```
 
 ## ThreatFox API
 

@@ -103,38 +103,6 @@ def run() -> None:
     port = int(os.getenv("PORT", "8081"))
     environment = os.getenv("ENVIRONMENT", "unknown")
 
-    # Enable remote debugging if DEBUG_MODE is set
-    if os.getenv("DEBUG_MODE") == "true":
-        import debugpy
-
-        debug_port = int(os.getenv("DEBUG_PORT", "5678"))
-        debugpy.listen(("0.0.0.0", debug_port))
-        log_event(
-            logging.INFO,
-            "Debugger listening",
-            service="threatfox-ingestion",
-            event="debugger_listening",
-            environment=environment,
-            debug_port=debug_port,
-        )
-        log_event(
-            logging.INFO,
-            "Waiting for debugger to attach",
-            service="threatfox-ingestion",
-            event="debugger_waiting",
-            environment=environment,
-            debug_port=debug_port,
-        )
-        debugpy.wait_for_client()
-        log_event(
-            logging.INFO,
-            "Debugger attached",
-            service="threatfox-ingestion",
-            event="debugger_attached",
-            environment=environment,
-            debug_port=debug_port,
-        )
-
     server = HTTPServer(("0.0.0.0", port), Handler)
     log_event(
         logging.INFO,

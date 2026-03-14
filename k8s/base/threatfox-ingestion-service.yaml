@@ -11,6 +11,3 @@ spec:
     - name: http
       port: 80
       targetPort: http
-    - name: debug
-      port: 5678
-      targetPort: debug

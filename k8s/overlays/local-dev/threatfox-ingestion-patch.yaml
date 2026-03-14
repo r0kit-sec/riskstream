@@ -12,7 +12,3 @@ spec:
           env:
             - name: ENVIRONMENT
               value: local-dev
-            - name: DEBUG_MODE
-              value: "false"
-            - name: DEBUG_PORT
-              value: "5678"
