@@ -10,7 +10,7 @@ spec:
     - https://grafana.github.io/helm-charts
     - https://fluent.github.io/helm-charts
   destinations:
-    - namespace: observability
+    - namespace: main
       server: https://kubernetes.default.svc
     - namespace: staging
       server: https://kubernetes.default.svc
