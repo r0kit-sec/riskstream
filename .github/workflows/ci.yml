@@ -92,10 +92,11 @@ jobs:
           context: ./app
           file: ./app/Dockerfile
           push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=riskstream
+          cache-to: type=gha,mode=max,scope=riskstream,ignore-error=true
 
       - name: ThreatFox Docker metadata
         id: threatfox-meta
@@ -112,10 +113,11 @@ jobs:
           context: .
           file: ./riskstream/services/ingestion/threatfox/Dockerfile
           push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
           tags: ${{ steps.threatfox-meta.outputs.tags }}
           labels: ${{ steps.threatfox-meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=threatfox-ingestion
+          cache-to: type=gha,mode=max,scope=threatfox-ingestion,ignore-error=true
 
       - name: CISA KEV Docker metadata
         id: cisa-kev-meta
@@ -132,7 +134,8 @@ jobs:
           context: .
           file: ./riskstream/services/ingestion/cisa-kev/Dockerfile
           push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
           tags: ${{ steps.cisa-kev-meta.outputs.tags }}
           labels: ${{ steps.cisa-kev-meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=cisa-kev-ingestion
+          cache-to: type=gha,mode=max,scope=cisa-kev-ingestion,ignore-error=true
