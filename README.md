@@ -4,6 +4,10 @@ Riskstream is a streaming ML ranking system that prioritizes security signals ba
 
 Built on Kubernetes with Argo CD GitOps and GitHub Actions CI/CD.
 
+![Riskstream solution architecture](docs/riskstream-solution-architecture.svg)
+
+Current solution architecture for the project as it exists today. RiskStream is still a work in progress, so this diagram reflects the current state rather than a finalized end state. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for deployment structure and platform details.
+
 ## Quick Start
 
 ### Prerequisites
