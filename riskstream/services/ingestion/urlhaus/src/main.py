@@ -5,12 +5,12 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-from client import JsonFormatter, UrlhausClient
-from feed_store import ingest_recent_feed
-
 REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from client import JsonFormatter, UrlhausClient
+from feed_store import ingest_recent_feed
 
 logger = logging.getLogger("urlhaus.main")
 

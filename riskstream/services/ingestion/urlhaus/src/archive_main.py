@@ -4,12 +4,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from client import JsonFormatter
-from feed_store import run_archive_lifecycle
-
 REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from client import JsonFormatter
+from feed_store import run_archive_lifecycle
 
 
 logger = logging.getLogger("urlhaus.archive")
