@@ -110,6 +110,7 @@ RiskStream is built as a collection of microservices:
 - **Ingestion Services**:
   - **ThreatFox** - abuse.ch ThreatFox IOC ingestion
   - **CISA KEV** - CISA Known Exploited Vulnerabilities catalog ingestion
+  - **URLhaus** - abuse.ch recent malware URL ingestion
 - **Storage** - MinIO object storage for threat data
   - Separate instances per environment (local-dev, staging, production)
   - Buckets: `threat-indicators`, `raw-feeds`, `processed-data`, `archives`

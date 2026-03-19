@@ -41,7 +41,8 @@ ubuntu-latest runner
 ├── Generate app and ingestion image tags
 ├── Build app image
 ├── Build ThreatFox ingestion image
-└── Build CISA KEV ingestion image
+├── Build CISA KEV ingestion image
+└── Build URLhaus ingestion image
 ```
 
 ### Permissions
@@ -59,6 +60,7 @@ These permissions use the auto-generated `GITHUB_TOKEN` (no manual setup needed)
 - `ghcr.io/itsbriany/riskstream`
 - `ghcr.io/itsbriany/threatfox-ingestion`
 - `ghcr.io/itsbriany/cisa-kev-ingestion`
+- `ghcr.io/itsbriany/urlhaus-ingestion`
 
 ### Main App Build Context
 
@@ -73,7 +75,7 @@ These permissions use the auto-generated `GITHUB_TOKEN` (no manual setup needed)
 | `ghcr.io/itsbriany/riskstream:latest` | Latest release alias |
 | `ghcr.io/itsbriany/riskstream:<sha>` | Commit-specific digest for traceability |
 
-ThreatFox and CISA KEV ingestion images publish `:<sha>` and `:main` tags on pushes to `main`.
+ThreatFox, CISA KEV, and URLhaus ingestion images publish `:<sha>` and `:main` tags on pushes to `main`.
 
 ### GHCR Setup
 
@@ -115,7 +117,7 @@ The workflow uses GitHub Actions build cache (`type=gha`) to speed up rebuilds:
 - Layer cache persists across builds
 - Subsequent builds skip unchanged layers
 - Significantly reduces build time on repeated pushes
-- Cache scope is isolated per image (`riskstream`, `threatfox-ingestion`, `cisa-kev-ingestion`) to avoid cache collisions across builds
+- Cache scope is isolated per image (`riskstream`, `threatfox-ingestion`, `cisa-kev-ingestion`, `urlhaus-ingestion`) to avoid cache collisions across builds
 - PR builds use explicit local image output while push builds publish to GHCR
 
 ## Developer Workflow
