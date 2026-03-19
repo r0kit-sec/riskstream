@@ -324,7 +324,7 @@ def test_ingest_recent_persists_snapshot(monkeypatch):
         "content_hash": "abc123",
         "urls": [{"url": "https://bad.example", "status": "online"}],
     }
-    handler = build_handler("/ingest/recent", urlhaus_client, method="POST")
+    handler = build_handler("/ingestion/recent", urlhaus_client, method="POST")
     monkeypatch.setattr(main, "log_event", Mock())
     monkeypatch.setattr(
         main,
@@ -369,7 +369,7 @@ def test_ingest_recent_returns_500_on_persist_error(monkeypatch):
         "urls": [{"url": "https://bad.example", "status": "online"}],
     }
     log_event = Mock()
-    handler = build_handler("/ingest/recent", urlhaus_client, method="POST")
+    handler = build_handler("/ingestion/recent", urlhaus_client, method="POST")
     monkeypatch.setattr(main, "log_event", log_event)
     monkeypatch.setattr(
         main,

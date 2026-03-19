@@ -202,7 +202,7 @@ class Handler(BaseHTTPRequestHandler):
         environment = os.getenv("ENVIRONMENT", "unknown")
         self.log_request_started("POST", environment)
 
-        if self.path == "/ingest/recent":
+        if self.path == "/ingestion/recent":
             try:
                 data = self.client.get_recent_urls()
                 ingestion = ingest_recent_snapshot(data)

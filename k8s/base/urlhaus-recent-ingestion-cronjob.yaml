@@ -23,4 +23,4 @@ spec:
                 - -fsS
                 - -X
                 - POST
-                - http://urlhaus-ingestion/ingest/recent
+                - http://urlhaus-ingestion/ingestion/recent

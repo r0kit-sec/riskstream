@@ -30,7 +30,7 @@ def test_urlhaus_recent_endpoint_returns_live_data():
 
 
 def test_urlhaus_ingest_recent_endpoint_persists_live_data():
-    request = Request(f"{_base_url()}/ingest/recent", method="POST")
+    request = Request(f"{_base_url()}/ingestion/recent", method="POST")
 
     with urlopen(request, timeout=30) as response:
         assert response.status == 200

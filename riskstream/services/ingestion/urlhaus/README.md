@@ -17,7 +17,7 @@ Fetches the current URLhaus recent CSV export, parses it into JSON records, and 
 
 ### Ingest Recent URLs
 ```text
-POST /ingest/recent
+POST /ingestion/recent
 ```
 Fetches the current URLhaus recent CSV export, computes a deterministic content hash, and persists a new timestamped raw snapshot to the `raw-feeds` MinIO bucket under `urlhaus/recent/...` only when the feed content has changed.
 
@@ -39,7 +39,7 @@ GET /
 
 ## Ingestion Behavior
 
-- The Kubernetes CronJob triggers `POST /ingest/recent` every 5 minutes
+- The Kubernetes CronJob triggers `POST /ingestion/recent` every 5 minutes
 - The service fetches the current URLhaus recent CSV export on each run
 - A new snapshot is written only when the upstream payload differs from the latest stored snapshot
 - Successful ingest responses include `changed`, `snapshot_written`, `checked_at`, and `content_hash`
