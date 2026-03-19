@@ -122,16 +122,19 @@ Recommended flow:
 Example:
 
 ```bash
+kubectl delete job urlhaus-archive-lifecycle-now -n local-dev --ignore-not-found
+
 kubectl create job urlhaus-archive-lifecycle-now \
   --from=cronjob/urlhaus-archive-lifecycle \
-  -n local-dev
-
-kubectl set env job/urlhaus-archive-lifecycle-now \
-  URLHAUS_ARCHIVE_REFERENCE_TIME=2026-04-19T00:00:00+00:00 \
-  -n local-dev
+  -n local-dev \
+  --dry-run=client -o yaml \
+| yq '.spec.template.spec.containers[0].env += [{"name":"URLHAUS_ARCHIVE_REFERENCE_TIME","value":"2026-04-19T00:00:00+00:00"}]' \
+| kubectl apply -f -
 
 kubectl logs -n local-dev job/urlhaus-archive-lifecycle-now -f
 ```
+
+If you do not have `yq`, generate the Job manifest with `--dry-run=client -o yaml`, add `URLHAUS_ARCHIVE_REFERENCE_TIME` under the container `env:` list, and then apply the manifest. Do not use `kubectl set env` after the Job is created, because a Job's pod template is immutable.
 
 Expected result:
 
