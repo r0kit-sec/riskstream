@@ -13,6 +13,9 @@ resources:
   - threatfox-ingestion-deployment.yaml
   - threatfox-ingestion-service.yaml
   - threatfox-recent-ingestion-cronjob.yaml
+  - urlhaus-ingestion-deployment.yaml
+  - urlhaus-ingestion-service.yaml
+  - urlhaus-recent-ingestion-cronjob.yaml
 
 configMapGenerator:
   - name: minio-init-scripts

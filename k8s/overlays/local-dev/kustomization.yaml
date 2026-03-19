@@ -16,9 +16,13 @@ images:
   - name: ghcr.io/itsbriany/threatfox-ingestion
     newName: threatfox-ingestion
     newTag: local
+  - name: ghcr.io/itsbriany/urlhaus-ingestion
+    newName: urlhaus-ingestion
+    newTag: local
 
 patches:
   - path: patch.yaml
   - path: minio-patch.yaml
   - path: cisa-kev-ingestion-patch.yaml
   - path: threatfox-ingestion-patch.yaml
+  - path: urlhaus-ingestion-patch.yaml

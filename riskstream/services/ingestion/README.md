@@ -12,6 +12,10 @@ Ingests the official CISA Known Exploited Vulnerabilities catalog.
 Ingests indicators of compromise (IOCs) from the abuse.ch ThreatFox community API.
 - Canonical doc: `threatfox/README.md`
 
+### URLhaus
+Ingests recent malware URL intelligence from the abuse.ch URLhaus feed.
+- Canonical doc: `urlhaus/README.md`
+
 ## Architecture Pattern
 
 Each ingestion service follows a consistent pattern:
@@ -28,7 +32,6 @@ Service-specific ports, schedules, upstream sources, persistence layout, and tro
 Additional ingestion services planned:
 - **AlienVault OTX**: Open Threat Exchange platform
 - **VirusTotal**: File and URL scanning
-- **URLhaus**: Malicious URL database
 - **MalwareBazaar**: Malware sample database
 - **Custom feeds**: Organization-specific threat feeds
 

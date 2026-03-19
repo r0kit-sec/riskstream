@@ -12,6 +12,7 @@ Main API gateway that provides a unified interface for external clients.
 Services that collect threat intelligence from external sources.
 - **ThreatFox**: `ingestion/threatfox/README.md`
 - **CISA KEV**: `ingestion/cisa-kev/README.md`
+- **URLhaus**: `ingestion/urlhaus/README.md`
 
 ## Service Architecture
 

@@ -16,3 +16,4 @@ patches:
   - path: minio-patch.yaml
   - path: cisa-kev-ingestion-patch.yaml
   - path: threatfox-ingestion-patch.yaml
+  - path: urlhaus-ingestion-patch.yaml
