@@ -16,6 +16,7 @@ resources:
   - urlhaus-ingestion-deployment.yaml
   - urlhaus-ingestion-service.yaml
   - urlhaus-recent-ingestion-cronjob.yaml
+  - urlhaus-archive-lifecycle-cronjob.yaml
 
 configMapGenerator:
   - name: minio-init-scripts

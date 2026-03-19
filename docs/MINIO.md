@@ -23,7 +23,13 @@ Buckets are automatically created via a Kubernetes Job that runs after MinIO dep
 ### Current Raw Feed Prefixes
 - `threatfox/recent/` - ThreatFox recent IOC snapshots
 - `cisa-kev/catalog/` - CISA KEV catalog snapshots
-- `urlhaus/recent/` - URLhaus recent malware URL snapshots
+- `urlhaus/checkpoints/` - URLhaus daily raw checkpoints
+- `urlhaus/deltas/` - URLhaus immutable change sets between polls
+- `urlhaus/state/` - URLhaus mutable latest-state working object
+
+### Current Archive Prefixes
+- `urlhaus/checkpoints/` - Archived URLhaus daily checkpoints
+- `urlhaus/deltas/` - Archived URLhaus deltas
 
 These prefixes are created on first write. The MinIO init job creates buckets only, not object-prefix placeholders.
 

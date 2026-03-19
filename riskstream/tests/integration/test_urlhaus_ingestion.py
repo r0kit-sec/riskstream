@@ -41,14 +41,15 @@ def test_urlhaus_ingest_recent_endpoint_persists_live_data():
     assert payload["service"] == "urlhaus-ingestion"
     assert payload["feed"] == "recent"
     assert "changed" in payload
-    assert "snapshot_written" in payload
+    assert "checkpoint_written" in payload
+    assert "delta_written" in payload
+    assert "delta_counts" in payload
     assert payload["checked_at"]
     assert "urls_count" in payload
-    if payload["snapshot_written"]:
+    assert set(payload["delta_counts"]) == {"added", "updated", "removed"}
+    if payload["checkpoint_written"]:
+        assert payload["checkpoint_object_key"].startswith("urlhaus/checkpoints/")
+    if payload["delta_written"]:
         assert payload["changed"] is True
-        assert payload["bucket"] == "raw-feeds"
-        assert payload["object_key"].startswith("urlhaus/recent/")
-        assert payload["fetched_at"]
-    else:
-        assert payload["changed"] is False
-        assert payload["last_object_key"].startswith("urlhaus/recent/")
+        assert payload["delta_object_key"].startswith("urlhaus/deltas/")
+        assert payload["state_object_key"] == "urlhaus/state/latest.json.gz"

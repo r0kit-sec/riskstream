@@ -19,7 +19,7 @@ Fetches the current URLhaus recent CSV export, parses it into JSON records, and 
 ```text
 POST /ingestion/recent
 ```
-Fetches the current URLhaus recent CSV export, computes a deterministic content hash, and persists a new timestamped raw snapshot to the `raw-feeds` MinIO bucket under `urlhaus/recent/...` only when the feed content has changed.
+Fetches the current URLhaus recent CSV export, writes a daily checkpoint when needed, writes an immutable delta when the feed content changes, and updates a mutable latest-state object used for diffing.
 
 ### Service Info
 ```text
@@ -36,14 +36,23 @@ GET /
 - `S3_ACCESS_KEY`: MinIO/S3 access key for raw feed storage
 - `S3_SECRET_KEY`: MinIO/S3 secret key for raw feed storage
 - `S3_USE_SSL`: Whether to use TLS for MinIO/S3 connections
+- `URLHAUS_HOT_RETENTION_DAYS`: Hot retention window before archive move (default: `30`)
+- `URLHAUS_ARCHIVE_RETENTION_DAYS`: Archive retention window before delete (default: `180`)
 
 ## Ingestion Behavior
 
 - The Kubernetes CronJob triggers `POST /ingestion/recent` every 5 minutes
 - The service fetches the current URLhaus recent CSV export on each run
-- A new snapshot is written only when the upstream payload differs from the latest stored snapshot
-- Successful ingest responses include `changed`, `snapshot_written`, `checked_at`, and `content_hash`
-- No-change responses include `last_object_key` instead of writing a duplicate snapshot
+- The first successful poll each UTC day writes `raw-feeds/urlhaus/checkpoints/YYYY/MM/DD/000000Z.json.gz`
+- Changed polls write `raw-feeds/urlhaus/deltas/YYYY/MM/DD/<content_hash>.json.gz`
+- The latest parsed feed state is maintained at `raw-feeds/urlhaus/state/latest.json.gz`
+- Successful ingest responses include `changed`, `checkpoint_written`, `delta_written`, `delta_counts`, `checked_at`, and `content_hash`
+
+## Archive Lifecycle
+
+- A dedicated `urlhaus-archive-lifecycle` CronJob moves URLhaus checkpoints and deltas older than the hot retention window from `raw-feeds` into `archives`
+- The lifecycle job never archives or deletes `raw-feeds/urlhaus/state/latest.json.gz`
+- Archived URLhaus artifacts older than the archive retention window are deleted
 
 ## Running Locally
 
@@ -87,6 +96,7 @@ kubectl create secret generic urlhaus-secret \
 kubectl logs -n local-dev -l app=urlhaus-ingestion -f
 pytest riskstream/tests/unit/test_urlhaus_ingestion.py -q
 ./scripts/run-urlhaus-integration-test.sh
+./scripts/run-urlhaus-archive-lifecycle-integration-test.sh
 ```
 
 To run all ingestion integration tests in sequence from one entrypoint:
