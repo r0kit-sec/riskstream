@@ -48,6 +48,57 @@ GET /
 - The latest parsed feed state is maintained at `raw-feeds/urlhaus/state/latest.json.gz`
 - Successful ingest responses include `changed`, `checkpoint_written`, `delta_written`, `delta_counts`, `checked_at`, and `content_hash`
 
+## How MinIO Writes Work
+
+Only `POST /ingestion/recent` writes to MinIO. `GET /recent` fetches and parses the current URLhaus feed, but does not persist anything.
+
+Each `POST /ingestion/recent` run follows this sequence:
+
+1. Fetch the current `csv_recent` export from URLhaus
+2. Compute a content hash from the raw CSV
+3. Read `raw-feeds/urlhaus/state/latest.json.gz` if it exists
+4. Write the daily checkpoint if that UTC day does not already have one
+5. If the content hash changed, write a delta and then overwrite `state/latest`
+
+### What Gets Written
+
+- `raw-feeds/urlhaus/checkpoints/YYYY/MM/DD/000000Z.json.gz`
+  - Written once per UTC day on the first successful poll for that day
+  - Contains metadata plus the full raw CSV payload
+- `raw-feeds/urlhaus/deltas/YYYY/MM/DD/<content_hash>.json.gz`
+  - Written only when the current feed differs from `state/latest`
+  - Contains metadata plus `added`, `updated`, and `removed` records keyed by URLhaus `id`
+- `raw-feeds/urlhaus/state/latest.json.gz`
+  - Overwritten only when the current feed differs from the previous latest state
+  - Contains the current parsed feed as `records_by_id`
+  - Used for diffing on the next poll, not as a historical checkpoint
+
+### Common Poll Scenarios
+
+- First successful poll of a new UTC day:
+  - writes a daily checkpoint
+  - writes a delta
+  - writes `state/latest`
+- A poll 5 minutes later with no upstream changes:
+  - writes nothing
+  - returns `changed: false`
+- A poll 5 minutes later with upstream changes:
+  - writes a delta
+  - overwrites `state/latest`
+  - does not write another checkpoint if that day already has one
+
+### Why You See Metadata
+
+Each stored object is a small JSON envelope around the payload. The envelope includes fields such as:
+
+- `source`
+- `feed`
+- `service`
+- `content_hash`
+- `fetched_at` or `updated_at`
+
+The actual URLhaus data is then stored under `data` for checkpoints and deltas, or under `records_by_id` for `state/latest`.
+
 ## Archive Lifecycle
 
 - A dedicated `urlhaus-archive-lifecycle` CronJob moves URLhaus checkpoints and deltas older than the hot retention window from `raw-feeds` into `archives`
