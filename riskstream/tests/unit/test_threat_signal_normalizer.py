@@ -119,7 +119,8 @@ def test_normalize_urlhaus_checkpoint_maps_expected_fields():
         "data": {
             "source_url": "https://urlhaus.abuse.ch/downloads/csv_recent/",
             "raw_csv": (
-                "id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n"
+                "# generated every 5 minutes\n"
+                "# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n"
                 '"3799807","2026-03-19 14:49:13","http://221.200.214.87:54591/i","online","2026-03-19 14:49:13","malware_download","32-bit,elf,mips,Mozi","https://urlhaus.abuse.ch/url/3799807/","geenensp"\n'
             ),
         },

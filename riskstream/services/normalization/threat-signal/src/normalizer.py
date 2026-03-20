@@ -227,11 +227,17 @@ def normalize_urlhaus_row(
 def parse_urlhaus_checkpoint_rows(snapshot: dict) -> list[dict[str, str]]:
     data = snapshot.get("data", {})
     raw_csv = data.get("raw_csv", "")
-    data_lines = [
-        line
-        for line in raw_csv.splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+    data_lines = []
+    for line in raw_csv.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            candidate = stripped.removeprefix("#").strip()
+            if candidate.startswith("id,"):
+                data_lines.append(candidate)
+            continue
+        data_lines.append(line)
     if not data_lines:
         return []
 
