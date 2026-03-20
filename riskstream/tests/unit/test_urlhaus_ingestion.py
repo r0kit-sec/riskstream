@@ -288,7 +288,12 @@ def test_build_delta_payload_classifies_added_updated_removed():
         {"id": "1", "url": "https://one.example", "url_status": "offline"}
     ]
     assert payload["data"]["removed"] == [
-        {"id": "2", "reason": "missing_from_recent_feed"}
+        {
+            "id": "2",
+            "url": "https://two.example",
+            "url_status": "online",
+            "reason": "missing_from_recent_feed",
+        }
     ]
 
 

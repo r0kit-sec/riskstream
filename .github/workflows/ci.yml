@@ -12,6 +12,7 @@ env:
   CISA_KEV_IMAGE_NAME: ghcr.io/itsbriany/cisa-kev-ingestion
   THREATFOX_IMAGE_NAME: ghcr.io/itsbriany/threatfox-ingestion
   URLHAUS_IMAGE_NAME: ghcr.io/itsbriany/urlhaus-ingestion
+  THREAT_SIGNAL_NORMALIZER_IMAGE_NAME: ghcr.io/itsbriany/threat-signal-normalizer
 
 jobs:
   lint-and-test:
@@ -62,6 +63,14 @@ jobs:
             -w /work \
             python:3.11-slim \
             sh -lc "python -m pip install --quiet pytest && pytest -q riskstream/tests/unit/test_urlhaus_ingestion.py"
+
+      - name: Run threat-signal normalizer unit tests in service base image
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            python:3.11-slim \
+            sh -lc "python -m pip install --quiet pytest minio && pytest -q riskstream/tests/unit/test_threat_signal_normalizer.py"
 
   container:
     needs: lint-and-test
@@ -169,3 +178,24 @@ jobs:
           labels: ${{ steps.urlhaus-meta.outputs.labels }}
           cache-from: type=gha,scope=urlhaus-ingestion
           cache-to: type=gha,mode=max,scope=urlhaus-ingestion,ignore-error=true
+
+      - name: Threat signal normalizer Docker metadata
+        id: threat-signal-normalizer-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.THREAT_SIGNAL_NORMALIZER_IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=main,enable={{is_default_branch}}
+
+      - name: Build threat signal normalizer (PR) / Build and push threat signal normalizer (main)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./riskstream/services/normalization/threat-signal/Dockerfile
+          push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
+          tags: ${{ steps.threat-signal-normalizer-meta.outputs.tags }}
+          labels: ${{ steps.threat-signal-normalizer-meta.outputs.labels }}
+          cache-from: type=gha,scope=threat-signal-normalizer
+          cache-to: type=gha,mode=max,scope=threat-signal-normalizer,ignore-error=true

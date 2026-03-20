@@ -13,9 +13,11 @@ resources:
   - threatfox-ingestion-deployment.yaml
   - threatfox-ingestion-service.yaml
   - threatfox-recent-ingestion-cronjob.yaml
+  - threatfox-recent-normalization-cronjob.yaml
   - urlhaus-ingestion-deployment.yaml
   - urlhaus-ingestion-service.yaml
   - urlhaus-recent-ingestion-cronjob.yaml
+  - urlhaus-recent-normalization-cronjob.yaml
   - urlhaus-archive-lifecycle-cronjob.yaml
 
 configMapGenerator:
