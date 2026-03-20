@@ -6,20 +6,21 @@ import time
 import uuid
 from io import BytesIO
 
-from minio import Minio
 from minio.error import S3Error
+
+from riskstream.shared.utils.storage import StorageClient
 
 
 RAW_BUCKET = "raw-feeds"
 PROCESSED_BUCKET = "processed-data"
 
 
-def _storage_client() -> Minio:
-    return Minio(
-        os.getenv("S3_ENDPOINT", "minio:9000"),
+def _storage_client() -> StorageClient:
+    return StorageClient(
+        endpoint=os.getenv("S3_ENDPOINT", "minio:9000"),
         access_key=os.getenv("S3_ACCESS_KEY", "minioadmin"),
         secret_key=os.getenv("S3_SECRET_KEY", "minioadmin"),
-        secure=os.getenv("S3_USE_SSL", "false").lower() == "true",
+        use_ssl=os.getenv("S3_USE_SSL", "false").lower() == "true",
     )
 
 
@@ -27,8 +28,8 @@ def _main_path() -> str:
     return "/app/riskstream/services/normalization/threat-signal/src/main.py"
 
 
-def _read_json_gzip_object(client: Minio, bucket: str, object_key: str) -> list[dict]:
-    response = client.get_object(bucket, object_key)
+def _read_json_gzip_object(client: StorageClient, bucket: str, object_key: str) -> list[dict]:
+    response = client.get_client().get_object(bucket, object_key)
     try:
         payload = gzip.decompress(response.read()).decode("utf-8").splitlines()
     finally:
@@ -37,9 +38,11 @@ def _read_json_gzip_object(client: Minio, bucket: str, object_key: str) -> list[
     return [json.loads(line) for line in payload if line.strip()]
 
 
-def _write_json_object(client: Minio, bucket: str, object_key: str, payload: dict) -> None:
+def _write_json_object(
+    client: StorageClient, bucket: str, object_key: str, payload: dict
+) -> None:
     raw_payload = json.dumps(payload).encode("utf-8")
-    client.put_object(
+    client.get_client().put_object(
         bucket,
         object_key,
         BytesIO(raw_payload),
@@ -48,11 +51,13 @@ def _write_json_object(client: Minio, bucket: str, object_key: str, payload: dic
     )
 
 
-def _write_gzip_json_object(client: Minio, bucket: str, object_key: str, payload: dict) -> None:
+def _write_gzip_json_object(
+    client: StorageClient, bucket: str, object_key: str, payload: dict
+) -> None:
     raw_payload = gzip.compress(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     )
-    client.put_object(
+    client.get_client().put_object(
         bucket,
         object_key,
         BytesIO(raw_payload),
@@ -61,11 +66,16 @@ def _write_gzip_json_object(client: Minio, bucket: str, object_key: str, payload
     )
 
 
-def _wait_for_object(client: Minio, bucket: str, object_key: str, timeout_seconds: float = 5.0) -> None:
+def _wait_for_object(bucket: str, object_key: str, timeout_seconds: float = 5.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     while True:
         try:
-            client.stat_object(bucket, object_key)
+            response = _storage_client().get_client().get_object(bucket, object_key)
+            try:
+                response.read()
+            finally:
+                response.close()
+                response.release_conn()
             return
         except S3Error as exc:
             if exc.code != "NoSuchKey" or time.monotonic() >= deadline:
@@ -117,7 +127,7 @@ def test_threatfox_normalization_runs_in_cluster():
         },
     }
     _write_json_object(client, RAW_BUCKET, raw_object_key, payload)
-    _wait_for_object(client, RAW_BUCKET, raw_object_key)
+    _wait_for_object(RAW_BUCKET, raw_object_key)
 
     first_run = _run_normalizer(
         "--raw-object-key",
@@ -171,7 +181,7 @@ def test_urlhaus_delta_normalization_runs_in_cluster():
         },
     }
     _write_gzip_json_object(client, RAW_BUCKET, raw_object_key, payload)
-    _wait_for_object(client, RAW_BUCKET, raw_object_key)
+    _wait_for_object(RAW_BUCKET, raw_object_key)
 
     run_result = _run_normalizer(
         "--raw-object-key",
