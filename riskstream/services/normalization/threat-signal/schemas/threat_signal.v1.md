@@ -60,7 +60,9 @@ Examples:
 
 ## Examples
 
-ThreatFox:
+Representative normalized records for each current feed shape:
+
+ThreatFox recent snapshot:
 
 ```json
 {
@@ -92,7 +94,7 @@ ThreatFox:
 }
 ```
 
-URLhaus:
+URLhaus checkpoint snapshot:
 
 ```json
 {
@@ -113,9 +115,8 @@ URLhaus:
   "evidence_url": "https://urlhaus.abuse.ch/url/3799807/",
   "raw_ref": {
     "bucket": "raw-feeds",
-    "object_key": "urlhaus/deltas/2026/03/19/abc123.json.gz",
-    "row_number": 1,
-    "section": "added"
+    "object_key": "urlhaus/checkpoints/2026/03/19/144913Z.json.gz",
+    "row_number": 1
   },
   "source_details": {
     "urlhaus": {
@@ -126,7 +127,63 @@ URLhaus:
 }
 ```
 
-CISA KEV:
+URLhaus delta updated row:
+
+```json
+{
+  "schema_version": "threat_signal.v1",
+  "source": "urlhaus",
+  "feed": "recent",
+  "signal_kind": "indicator",
+  "action": "updated",
+  "artifact_type": "url",
+  "artifact_value": "https://updated.example/payload",
+  "external_id": "3799808",
+  "status": "offline",
+  "raw_ref": {
+    "bucket": "raw-feeds",
+    "object_key": "urlhaus/deltas/2026/03/19/150000Z.json.gz",
+    "row_number": 2,
+    "section": "updated"
+  },
+  "source_details": {
+    "urlhaus": {
+      "url_status": "offline",
+      "reason": "last_online_changed"
+    }
+  }
+}
+```
+
+URLhaus delta removed row:
+
+```json
+{
+  "schema_version": "threat_signal.v1",
+  "source": "urlhaus",
+  "feed": "recent",
+  "signal_kind": "indicator",
+  "action": "removed",
+  "artifact_type": "url",
+  "artifact_value": "https://retired.example/dropper",
+  "external_id": "3799809",
+  "status": "offline",
+  "raw_ref": {
+    "bucket": "raw-feeds",
+    "object_key": "urlhaus/deltas/2026/03/19/150000Z.json.gz",
+    "row_number": 3,
+    "section": "removed"
+  },
+  "source_details": {
+    "urlhaus": {
+      "url_status": "offline",
+      "reason": "missing_from_recent_feed"
+    }
+  }
+}
+```
+
+CISA KEV catalog snapshot:
 
 ```json
 {
