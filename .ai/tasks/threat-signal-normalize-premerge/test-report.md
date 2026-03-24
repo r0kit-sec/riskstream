@@ -17,7 +17,7 @@
 
 - Threat-signal normalizer unit tests: `passed` (`9 passed`)
 - URLhaus ingestion unit tests: `passed` (`22 passed`)
-- Threat-signal normalization integration rerun: `passed` (`2 passed`)
+- Threat-signal normalization integration rerun: `passed` (`3 passed`)
 
 ## Integration Validation Notes
 
@@ -25,6 +25,8 @@
 - After the non-interactive wrapper was installed, the image import succeeded and the in-cluster rerun could proceed.
 - The next failed rerun exposed the real environment issue: the `local-dev` `minio` Service was routing to both `local-minio` and `minio`.
 - After narrowing the Service selector to the managed `minio` deployment in `local-dev`, the integration Job passed.
+- The integration Job now validates downloaded normalized rows against `threat_signal.v1.schema.json`.
+- The in-cluster coverage now includes ThreatFox normalization, URLhaus checkpoint normalization, and URLhaus delta normalization.
 
 ## Remaining Uncertainty
 
