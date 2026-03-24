@@ -3,6 +3,7 @@
 ## Resolved Blocking Finding
 
 1. The integration workflow had a concrete resilience gap: the normalizer read path failed hard on transient `NoSuchKey` immediately after a raw artifact was written, even though the test client could already observe the object. This blocked the in-cluster test job and made the batch path too brittle for just-written artifacts.
+2. The `local-dev` `minio` Service routed to both `local-minio` and `minio` pods in the same namespace. That created split object-store backends behind one service name, so the integration test could write through one MinIO pod and the subprocess could read through the other and receive `NoSuchKey`.
 
 ## What Looks Good
 
@@ -12,13 +13,13 @@
 
 ## Remaining Concerns
 
-- The integration rerun is still required to prove the fix in the real cluster path.
-- The tester is currently blocked from importing the rebuilt image into k3s because `sudo k3s ctr images import -` requires an interactive password in this environment.
+- No unresolved merge-blocking findings remain from this review/test pass.
+- A follow-up cleanup to remove the stale `local-minio` deployment from `local-dev` would reduce future confusion, but it is not required for this feature merge.
 
 ## Reviewer Checklist Summary
 
 - Security and OWASP Top 10: no obvious new application-layer findings surfaced in the reviewed paths.
-- Data corruption: no new corruption path identified after the raw-read retry hardening; normalized writes remain append-style object writes.
-- Crash and undefined behavior: the resolved raw-read race was the clearest crash trigger in the tested path.
+- Data corruption: the local-dev service selector fix removes a split-backend condition that could have made reads appear inconsistent across clients.
+- Crash and undefined behavior: the resolved raw-read retry and single-backend MinIO routing remove the observed failure mode from the tested path.
 - Logging and observability: existing JSON error logging on normalization failure is adequate for the current batch path.
 - Cost and resource creep: no new obvious storage, memory, or compute regressions surfaced in the reviewed code change itself; scheduled normalization frequency should still be monitored in cluster.

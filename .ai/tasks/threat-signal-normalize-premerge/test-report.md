@@ -17,21 +17,15 @@
 
 - Threat-signal normalizer unit tests: `passed` (`9 passed`)
 - URLhaus ingestion unit tests: `passed` (`22 passed`)
-- Threat-signal normalization integration rerun: `blocked`
+- Threat-signal normalization integration rerun: `passed` (`2 passed`)
 
-## Blocked Command
+## Integration Validation Notes
 
-- Command: `./scripts/run-threat-signal-normalization-integration-test.sh`
-- Blocking step: `docker save "${IMAGE_NAME}:${IMAGE_TAG}" | sudo k3s ctr images import -`
-- Observed error: `sudo: a terminal is required to read the password` and `sudo: a password is required`
-- Required access: non-interactive permission to run `k3s ctr images import` or an approved alternative image-import path
-- Confidence impact: cluster rerun could not confirm the fix in the exact merge-gate environment
-
-## Existing Cluster Signal
-
-- The prior `local-dev` Job `threat-signal-normalization-integration-test` failed before this fix with `NoSuchKey` on a just-written raw object.
-- That failure mode is the issue targeted by the new retry logic.
+- The original rerun was temporarily blocked at `sudo k3s ctr images import -`.
+- After the non-interactive wrapper was installed, the image import succeeded and the in-cluster rerun could proceed.
+- The next failed rerun exposed the real environment issue: the `local-dev` `minio` Service was routing to both `local-minio` and `minio`.
+- After narrowing the Service selector to the managed `minio` deployment in `local-dev`, the integration Job passed.
 
 ## Remaining Uncertainty
 
-- The code fix is unit-tested, but the integration proof is incomplete until the rebuilt image can be imported into k3s and the job rerun.
+- The feature is validated in `local-dev`, but the stale `local-minio` deployment should still be reviewed separately to prevent future test confusion.
