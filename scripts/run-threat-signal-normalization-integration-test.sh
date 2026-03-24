@@ -16,7 +16,11 @@ echo "Building threat-signal normalizer image ${IMAGE_NAME}:${IMAGE_TAG}..."
 docker build -f "${DOCKERFILE_PATH}" -t "${IMAGE_NAME}:${IMAGE_TAG}" "${ROOT_DIR}"
 
 echo "Importing threat-signal normalizer image into k3s..."
-docker save "${IMAGE_NAME}:${IMAGE_TAG}" | sudo k3s ctr images import -
+if [ -x "/usr/local/bin/k3s-image-import" ]; then
+  docker save "${IMAGE_NAME}:${IMAGE_TAG}" | sudo -n /usr/local/bin/k3s-image-import
+else
+  docker save "${IMAGE_NAME}:${IMAGE_TAG}" | sudo k3s ctr images import -
+fi
 
 echo "Deploying local-dev overlay to ${NAMESPACE}..."
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -

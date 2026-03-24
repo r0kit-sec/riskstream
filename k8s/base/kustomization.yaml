@@ -10,6 +10,7 @@ resources:
   - cisa-kev-ingestion-deployment.yaml
   - cisa-kev-ingestion-service.yaml
   - cisa-kev-catalog-ingestion-cronjob.yaml
+  - cisa-kev-catalog-normalization-cronjob.yaml
   - threatfox-ingestion-deployment.yaml
   - threatfox-ingestion-service.yaml
   - threatfox-recent-ingestion-cronjob.yaml

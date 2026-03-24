@@ -164,6 +164,66 @@ def test_threatfox_normalization_runs_in_cluster():
     assert normalized_rows[0]["source"] == "threatfox"
 
 
+def test_cisa_kev_catalog_normalization_runs_in_cluster():
+    client = _storage_client()
+
+    raw_object_key = f"cisa-kev/catalog/2099/12/31/235959Z-{uuid.uuid4().hex[:8]}.json"
+    normalized_object_key = (
+        raw_object_key.replace(
+            "cisa-kev/catalog/",
+            "normalized/threat-signals/cisa-kev/catalog/",
+        ).removesuffix(".json")
+        + ".jsonl.gz"
+    )
+    payload = {
+        "source": "cisa-kev",
+        "feed": "catalog",
+        "fetched_at": "2099-12-31T23:59:59+00:00",
+        "service": "cisa-kev-ingestion",
+        "content_hash": "abc123",
+        "data": {
+            "title": "CISA Known Exploited Vulnerabilities Catalog",
+            "catalogVersion": "2099.12.31",
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2099-0001",
+                    "vendorProject": "Acme",
+                    "product": "Widget",
+                    "vulnerabilityName": "Widget auth bypass",
+                    "dateAdded": "2099-12-31",
+                    "shortDescription": "Authentication bypass in Widget admin interface.",
+                    "requiredAction": "Apply the vendor patch.",
+                    "dueDate": "2100-01-15",
+                    "knownRansomwareCampaignUse": "Known",
+                    "notes": "Observed in active exploitation.",
+                    "cwes": ["CWE-287"],
+                }
+            ],
+        },
+    }
+    _write_json_object(client, RAW_BUCKET, raw_object_key, payload)
+    _wait_for_object(RAW_BUCKET, raw_object_key)
+
+    run_result = _run_normalizer(
+        "--raw-object-key",
+        raw_object_key,
+        "--raw-bucket",
+        RAW_BUCKET,
+    )
+    assert run_result["source"] == "cisa-kev"
+    assert run_result["raw_object_key"] == raw_object_key
+    assert run_result["normalized_object_key"] == normalized_object_key
+
+    normalized_rows = _read_json_gzip_object(client, PROCESSED_BUCKET, normalized_object_key)
+    assert len(normalized_rows) == 1
+    _assert_schema_valid(normalized_rows)
+    assert normalized_rows[0]["source"] == "cisa-kev"
+    assert normalized_rows[0]["signal_kind"] == "vulnerability"
+    assert normalized_rows[0]["artifact_type"] == "cve"
+    assert normalized_rows[0]["artifact_value"] == "CVE-2099-0001"
+    assert normalized_rows[0]["source_details"]["cisa-kev"]["requiredAction"] == "Apply the vendor patch."
+
+
 def test_urlhaus_checkpoint_normalization_runs_in_cluster():
     client = _storage_client()
 

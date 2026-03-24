@@ -43,11 +43,12 @@ Examples:
 
 - ThreatFox may emit `confidence` and `family`.
 - URLhaus may emit `status` and `evidence_url`.
-- Both use the same required core fields.
+- CISA KEV emits a `vulnerability` signal with feed-specific remediation context in `source_details["cisa-kev"]`.
+- All three use the same required core fields.
 
 ## Field notes
 
-- `signal_kind` is `indicator` for ThreatFox and URLhaus today. `vulnerability` is reserved for later feeds such as CISA KEV.
+- `signal_kind` is `indicator` for ThreatFox and URLhaus. CISA KEV uses `vulnerability`.
 - `artifact_type` is the normalized entity type used by downstream ranking and filtering.
 - `raw_ref` points back to the exact raw object and row that produced the normalized record.
 - `source_details` is the only intentionally flexible part of the schema. Top-level fields are strict, but feed-specific metadata may evolve inside `source_details.<source>`.
@@ -120,6 +121,36 @@ URLhaus:
     "urlhaus": {
       "url_status": "online",
       "urlhaus_link": "https://urlhaus.abuse.ch/url/3799807/"
+    }
+  }
+}
+```
+
+CISA KEV:
+
+```json
+{
+  "schema_version": "threat_signal.v1",
+  "source": "cisa-kev",
+  "feed": "catalog",
+  "signal_kind": "vulnerability",
+  "action": "observed",
+  "artifact_type": "cve",
+  "artifact_value": "CVE-2026-0001",
+  "external_id": "CVE-2026-0001",
+  "raw_ref": {
+    "bucket": "raw-feeds",
+    "object_key": "cisa-kev/catalog/2026/03/21/020500Z.json",
+    "row_number": 1
+  },
+  "source_details": {
+    "cisa-kev": {
+      "vendorProject": "Acme",
+      "product": "Widget",
+      "vulnerabilityName": "Widget auth bypass",
+      "requiredAction": "Apply the vendor patch.",
+      "dueDate": "2026-04-11",
+      "knownRansomwareCampaignUse": "Known"
     }
   }
 }

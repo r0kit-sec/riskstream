@@ -19,6 +19,7 @@ NORMALIZED_PREFIX = "normalized/threat-signals"
 RAW_OBJECT_READ_RETRY_ATTEMPTS = 10
 RAW_OBJECT_READ_RETRY_DELAY_SECONDS = 0.5
 SOURCE_PREFIXES = {
+    "cisa-kev": {"catalog": ["cisa-kev/catalog/"]},
     "threatfox": {"recent": ["threatfox/recent/"]},
     "urlhaus": {"recent": ["urlhaus/checkpoints/", "urlhaus/deltas/"]},
 }
@@ -314,7 +315,60 @@ def normalize_urlhaus_delta(
     return normalized_rows
 
 
+def normalize_cisa_kev_catalog(
+    snapshot: dict,
+    raw_bucket: str,
+    raw_object_key: str,
+) -> list[dict]:
+    rows = snapshot.get("data", {}).get("vulnerabilities", [])
+    normalized_rows = []
+
+    for row_number, row in enumerate(rows, start=1):
+        cve_id = str(row.get("cveID", "")).strip()
+        normalized_rows.append(
+            compact_record(
+                {
+                    "schema_version": THREAT_SIGNAL_SCHEMA_VERSION,
+                    "source": "cisa-kev",
+                    "feed": "catalog",
+                    "signal_kind": "vulnerability",
+                    "action": "observed",
+                    "artifact_type": "cve",
+                    "artifact_value": cve_id,
+                    "external_id": cve_id,
+                    "raw_ref": build_raw_ref(raw_bucket, raw_object_key, row_number),
+                    "source_details": compact_record(
+                        {
+                            "cisa-kev": compact_record(
+                                {
+                                    "vendorProject": row.get("vendorProject"),
+                                    "product": row.get("product"),
+                                    "vulnerabilityName": row.get("vulnerabilityName"),
+                                    "dateAdded": row.get("dateAdded"),
+                                    "shortDescription": row.get("shortDescription"),
+                                    "requiredAction": row.get("requiredAction"),
+                                    "dueDate": row.get("dueDate"),
+                                    "knownRansomwareCampaignUse": row.get(
+                                        "knownRansomwareCampaignUse"
+                                    ),
+                                    "notes": row.get("notes"),
+                                    "cwes": row.get("cwes"),
+                                }
+                            )
+                        }
+                    ),
+                }
+            )
+        )
+
+    return normalized_rows
+
+
 def build_normalized_object_key(raw_object_key: str, source: str) -> str:
+    if source == "cisa-kev" and raw_object_key.startswith("cisa-kev/catalog/"):
+        suffix = raw_object_key.removeprefix("cisa-kev/catalog/").removesuffix(".json")
+        return f"{NORMALIZED_PREFIX}/cisa-kev/catalog/{suffix}.jsonl.gz"
+
     if source == "threatfox" and raw_object_key.startswith("threatfox/recent/"):
         suffix = raw_object_key.removeprefix("threatfox/recent/").removesuffix(".json")
         return f"{NORMALIZED_PREFIX}/threatfox/recent/{suffix}.jsonl.gz"
@@ -355,6 +409,8 @@ def normalize_raw_artifact(
 
     if source == "threatfox":
         records = normalize_threatfox_snapshot(payload, raw_bucket, raw_object_key)
+    elif source == "cisa-kev" and raw_object_key.startswith("cisa-kev/catalog/"):
+        records = normalize_cisa_kev_catalog(payload, raw_bucket, raw_object_key)
     elif source == "urlhaus" and raw_object_key.startswith("urlhaus/checkpoints/"):
         records = normalize_urlhaus_checkpoint(payload, raw_bucket, raw_object_key)
     elif source == "urlhaus" and raw_object_key.startswith("urlhaus/deltas/"):

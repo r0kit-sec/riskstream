@@ -210,6 +210,71 @@ def test_normalize_urlhaus_delta_maps_actions():
     _assert_schema_valid(records[2])
 
 
+def test_normalize_cisa_kev_catalog_maps_expected_fields():
+    snapshot = {
+        "source": "cisa-kev",
+        "feed": "catalog",
+        "fetched_at": "2026-03-21T02:05:00+00:00",
+        "data": {
+            "catalogVersion": "2026.03.21",
+            "vulnerabilities": [
+                {
+                    "cveID": "CVE-2026-0001",
+                    "vendorProject": "Acme",
+                    "product": "Widget",
+                    "vulnerabilityName": "Widget auth bypass",
+                    "dateAdded": "2026-03-21",
+                    "shortDescription": "Authentication bypass in Widget admin interface.",
+                    "requiredAction": "Apply the vendor patch.",
+                    "dueDate": "2026-04-11",
+                    "knownRansomwareCampaignUse": "Known",
+                    "notes": "Observed in active exploitation.",
+                    "cwes": ["CWE-287"],
+                }
+            ],
+        },
+    }
+
+    records = normalizer.normalize_cisa_kev_catalog(
+        snapshot,
+        raw_bucket="raw-feeds",
+        raw_object_key="cisa-kev/catalog/2026/03/21/020500Z.json",
+    )
+
+    assert records == [
+        {
+            "schema_version": "threat_signal.v1",
+            "source": "cisa-kev",
+            "feed": "catalog",
+            "signal_kind": "vulnerability",
+            "action": "observed",
+            "artifact_type": "cve",
+            "artifact_value": "CVE-2026-0001",
+            "external_id": "CVE-2026-0001",
+            "raw_ref": {
+                "bucket": "raw-feeds",
+                "object_key": "cisa-kev/catalog/2026/03/21/020500Z.json",
+                "row_number": 1,
+            },
+            "source_details": {
+                "cisa-kev": {
+                    "vendorProject": "Acme",
+                    "product": "Widget",
+                    "vulnerabilityName": "Widget auth bypass",
+                    "dateAdded": "2026-03-21",
+                    "shortDescription": "Authentication bypass in Widget admin interface.",
+                    "requiredAction": "Apply the vendor patch.",
+                    "dueDate": "2026-04-11",
+                    "knownRansomwareCampaignUse": "Known",
+                    "notes": "Observed in active exploitation.",
+                    "cwes": ["CWE-287"],
+                }
+            },
+        }
+    ]
+    _assert_schema_valid(records[0])
+
+
 def test_threat_signal_schema_rejects_missing_required_core_field():
     record = {
         "schema_version": "threat_signal.v1",
@@ -233,6 +298,13 @@ def test_threat_signal_schema_rejects_missing_required_core_field():
 
 
 def test_build_normalized_object_key_matches_phase1_layout():
+    assert (
+        normalizer.build_normalized_object_key(
+            "cisa-kev/catalog/2026/03/21/020500Z.json",
+            "cisa-kev",
+        )
+        == "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
+    )
     assert (
         normalizer.build_normalized_object_key(
             "threatfox/recent/2026/03/14/173753Z.json",
@@ -339,6 +411,60 @@ def test_read_json_object_retries_nosuchkey_before_succeeding():
     response.release_conn.assert_called_once()
 
 
+def test_normalize_raw_artifact_writes_cisa_kev_jsonl():
+    storage = Mock()
+    minio_client = Mock()
+    storage.get_client.return_value = minio_client
+    response = Mock()
+    response.read.return_value = json.dumps(
+        {
+            "source": "cisa-kev",
+            "feed": "catalog",
+            "data": {
+                "vulnerabilities": [
+                    {
+                        "cveID": "CVE-2026-0001",
+                        "vendorProject": "Acme",
+                        "product": "Widget",
+                    }
+                ]
+            },
+        }
+    ).encode("utf-8")
+    minio_client.get_object.return_value = response
+
+    result = normalizer.normalize_raw_artifact(
+        raw_object_key="cisa-kev/catalog/2026/03/21/020500Z.json",
+        storage=storage,
+    )
+
+    assert result == {
+        "source": "cisa-kev",
+        "raw_bucket": "raw-feeds",
+        "raw_object_key": "cisa-kev/catalog/2026/03/21/020500Z.json",
+        "normalized_bucket": "processed-data",
+        "normalized_object_key": "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz",
+        "records_count": 1,
+        "trigger_event": {
+            "event_type": "raw_artifact_written",
+            "source": "cisa-kev",
+            "feed": "catalog",
+            "bucket": "raw-feeds",
+            "object_key": "cisa-kev/catalog/2026/03/21/020500Z.json",
+        },
+    }
+    put_call = minio_client.put_object.call_args
+    assert put_call.args[0] == "processed-data"
+    assert (
+        put_call.args[1]
+        == "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
+    )
+    assert put_call.kwargs["content_type"] == "application/gzip"
+    payload = gzip.decompress(put_call.args[2].read()).decode("utf-8").splitlines()
+    assert len(payload) == 1
+    assert json.loads(payload[0])["artifact_value"] == "CVE-2026-0001"
+
+
 def test_list_pending_raw_object_keys_skips_existing_normalized_outputs():
     storage = Mock()
     minio_client = Mock()
@@ -370,6 +496,40 @@ def test_list_pending_raw_object_keys_skips_existing_normalized_outputs():
     )
 
     assert pending == ["threatfox/recent/2026/03/14/183753Z.json"]
+
+
+def test_list_pending_raw_object_keys_supports_cisa_kev_catalog_feed():
+    storage = Mock()
+    minio_client = Mock()
+    storage.get_client.return_value = minio_client
+
+    def list_objects(bucket, prefix, recursive):
+        assert recursive is True
+        if bucket == "raw-feeds" and prefix == "cisa-kev/catalog/":
+            first = Mock()
+            first.object_name = "cisa-kev/catalog/2026/03/21/020500Z.json"
+            second = Mock()
+            second.object_name = "cisa-kev/catalog/2026/03/22/020500Z.json"
+            return [first, second]
+        if (
+            bucket == "processed-data"
+            and prefix
+            == "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
+        ):
+            existing = Mock()
+            existing.object_name = prefix
+            return [existing]
+        return []
+
+    minio_client.list_objects.side_effect = list_objects
+
+    pending = normalizer.list_pending_raw_object_keys(
+        source="cisa-kev",
+        feed="catalog",
+        storage=storage,
+    )
+
+    assert pending == ["cisa-kev/catalog/2026/03/22/020500Z.json"]
 
 
 def test_normalize_pending_artifacts_processes_all_missing_objects():
