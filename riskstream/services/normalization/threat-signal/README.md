@@ -1,6 +1,6 @@
 # Threat Signal Normalization Service
 
-This batch component normalizes raw feed artifacts from `raw-feeds` into `threat_signal.v1` JSONL batches under `processed-data`.
+This batch component normalizes raw feed artifacts from `raw-feeds` into schema-versioned `threat_signal.v1` JSONL batches under `processed-data`.
 
 It is intended to run as Kubernetes Jobs or CronJobs rather than as a long-running HTTP service.
 
@@ -12,6 +12,21 @@ The canonical normalized-output contract lives under [`schemas/`](./schemas):
 - [`threat_signal.v1.md`](./schemas/threat_signal.v1.md) is the human-readable field guide
 
 `threat_signal.v1` uses a strict top-level schema with sparse optional fields. Feed-specific metadata belongs under `source_details`.
+
+Normalized outputs are written under:
+
+- `processed-data/normalized/threat-signals/threat_signal.v1/...`
+
+Normalization progress is tracked under:
+
+- `processed-data/normalization-state/threat-signal/threat_signal.v1/...`
+
+Checkpoint state is kept per raw stream:
+
+- `threatfox/recent`
+- `cisa-kev/catalog`
+- `urlhaus/checkpoints`
+- `urlhaus/deltas`
 
 ## Entrypoints
 
@@ -43,3 +58,23 @@ These Jobs run the same container entrypoint defined in the CronJobs:
 
 - `python riskstream/services/normalization/threat-signal/src/main.py --source threatfox`
 - `python riskstream/services/normalization/threat-signal/src/main.py --source urlhaus`
+- `python riskstream/services/normalization/threat-signal/src/main.py --source cisa-kev --feed catalog`
+
+## Incremental processing and replay
+
+Normal source/feed runs are incremental.
+
+- The normalizer stores a checkpoint per raw stream in MinIO.
+- On first run for a stream, it bootstraps by reconciling already-normalized raw artifacts.
+- Later runs resume from the last processed raw object key instead of scanning for missing normalized outputs across the full history.
+
+For recovery or schema backfill, use bounded replay:
+
+```bash
+python riskstream/services/normalization/threat-signal/src/main.py \
+  --source threatfox \
+  --replay-from-raw-object-key threatfox/recent/2026/03/14/173753Z.json \
+  --replay-limit 10
+```
+
+Replay reads a bounded range of raw artifacts without advancing the normal checkpoint.

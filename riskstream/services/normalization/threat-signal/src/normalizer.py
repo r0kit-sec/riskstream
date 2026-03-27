@@ -16,12 +16,23 @@ RAW_FEEDS_BUCKET = "raw-feeds"
 PROCESSED_DATA_BUCKET = "processed-data"
 THREAT_SIGNAL_SCHEMA_VERSION = "threat_signal.v1"
 NORMALIZED_PREFIX = "normalized/threat-signals"
+NORMALIZED_SCHEMA_PREFIX = f"{NORMALIZED_PREFIX}/{THREAT_SIGNAL_SCHEMA_VERSION}"
+CHECKPOINT_PREFIX = f"normalization-state/threat-signal/{THREAT_SIGNAL_SCHEMA_VERSION}"
 RAW_OBJECT_READ_RETRY_ATTEMPTS = 10
 RAW_OBJECT_READ_RETRY_DELAY_SECONDS = 0.5
-SOURCE_PREFIXES = {
-    "cisa-kev": {"catalog": ["cisa-kev/catalog/"]},
-    "threatfox": {"recent": ["threatfox/recent/"]},
-    "urlhaus": {"recent": ["urlhaus/checkpoints/", "urlhaus/deltas/"]},
+SOURCE_STREAMS = {
+    "cisa-kev": {
+        "catalog": [{"stream": "catalog", "raw_prefix": "cisa-kev/catalog/"}]
+    },
+    "threatfox": {
+        "recent": [{"stream": "recent", "raw_prefix": "threatfox/recent/"}]
+    },
+    "urlhaus": {
+        "recent": [
+            {"stream": "checkpoints", "raw_prefix": "urlhaus/checkpoints/"},
+            {"stream": "deltas", "raw_prefix": "urlhaus/deltas/"},
+        ]
+    },
 }
 
 
@@ -47,6 +58,10 @@ def split_urlhaus_tags(raw_tags: str | None) -> list[str]:
     if not raw_tags:
         return []
     return [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+
+
+def utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def decode_json_bytes(raw_bytes: bytes) -> dict:
@@ -81,9 +96,36 @@ def read_json_object(storage: StorageClient, bucket: str, object_key: str) -> di
     raise RuntimeError(f"Unable to read raw object after retries: {bucket}/{object_key}")
 
 
+def read_optional_json_object(
+    storage: StorageClient,
+    bucket: str,
+    object_key: str,
+) -> dict[str, Any] | None:
+    try:
+        response = storage.get_client().get_object(bucket, object_key)
+        try:
+            return decode_json_bytes(response.read())
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+
+            release_conn = getattr(response, "release_conn", None)
+            if callable(release_conn):
+                release_conn()
+    except Exception as exc:
+        if getattr(exc, "code", None) in {"NoSuchKey", "NoSuchObject", "NoSuchVersion"}:
+            return None
+        raise
+
+
 def encode_jsonl_gzip(records: list[dict]) -> bytes:
     payload = "\n".join(json.dumps(record, sort_keys=True) for record in records)
     return gzip.compress(payload.encode("utf-8"))
+
+
+def encode_json_bytes(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True).encode("utf-8")
 
 
 def write_normalized_records(
@@ -101,16 +143,65 @@ def write_normalized_records(
     )
 
 
-def list_object_names(storage: StorageClient, bucket: str, prefix: str) -> list[str]:
+def write_json_object(
+    storage: StorageClient,
+    bucket: str,
+    object_key: str,
+    payload: dict[str, Any],
+) -> None:
+    raw_payload = encode_json_bytes(payload)
+    storage.get_client().put_object(
+        bucket,
+        object_key,
+        BytesIO(raw_payload),
+        len(raw_payload),
+        content_type="application/json",
+    )
+
+
+def list_object_names(
+    storage: StorageClient,
+    bucket: str,
+    prefix: str,
+    start_after: str | None = None,
+) -> list[str]:
+    client = storage.get_client()
+    kwargs: dict[str, Any] = {"prefix": prefix, "recursive": True}
+    if start_after is not None:
+        kwargs["start_after"] = start_after
+
+    try:
+        objects = client.list_objects(bucket, **kwargs)
+    except TypeError:
+        objects = client.list_objects(bucket, prefix=prefix, recursive=True)
+
     names = []
-    for obj in storage.get_client().list_objects(bucket, prefix=prefix, recursive=True):
+    for obj in objects:
         object_name = getattr(obj, "object_name", None)
         if object_name:
             names.append(object_name)
+
+    if start_after is not None:
+        names = [name for name in names if name > start_after]
+
     return sorted(names)
 
 
 def object_exists(storage: StorageClient, bucket: str, object_key: str) -> bool:
+    stat_object = getattr(storage.get_client(), "stat_object", None)
+    if callable(stat_object):
+        try:
+            stat_object(bucket, object_key)
+            return True
+        except Exception as exc:
+            if getattr(exc, "code", None) in {
+                "NoSuchKey",
+                "NoSuchObject",
+                "NoSuchVersion",
+            }:
+                return False
+            raise
+
     return object_key in list_object_names(storage, bucket, object_key)
 
 
@@ -367,21 +458,25 @@ def normalize_cisa_kev_catalog(
 def build_normalized_object_key(raw_object_key: str, source: str) -> str:
     if source == "cisa-kev" and raw_object_key.startswith("cisa-kev/catalog/"):
         suffix = raw_object_key.removeprefix("cisa-kev/catalog/").removesuffix(".json")
-        return f"{NORMALIZED_PREFIX}/cisa-kev/catalog/{suffix}.jsonl.gz"
+        return f"{NORMALIZED_SCHEMA_PREFIX}/cisa-kev/catalog/{suffix}.jsonl.gz"
 
     if source == "threatfox" and raw_object_key.startswith("threatfox/recent/"):
         suffix = raw_object_key.removeprefix("threatfox/recent/").removesuffix(".json")
-        return f"{NORMALIZED_PREFIX}/threatfox/recent/{suffix}.jsonl.gz"
+        return f"{NORMALIZED_SCHEMA_PREFIX}/threatfox/recent/{suffix}.jsonl.gz"
 
     if raw_object_key.startswith("urlhaus/checkpoints/"):
         suffix = raw_object_key.removeprefix("urlhaus/checkpoints/")
-        return f"{NORMALIZED_PREFIX}/urlhaus/recent/checkpoints/{suffix.removesuffix('.json.gz')}.jsonl.gz"
+        return f"{NORMALIZED_SCHEMA_PREFIX}/urlhaus/recent/checkpoints/{suffix.removesuffix('.json.gz')}.jsonl.gz"
 
     if raw_object_key.startswith("urlhaus/deltas/"):
         suffix = raw_object_key.removeprefix("urlhaus/deltas/")
-        return f"{NORMALIZED_PREFIX}/urlhaus/recent/deltas/{suffix.removesuffix('.json.gz')}.jsonl.gz"
+        return f"{NORMALIZED_SCHEMA_PREFIX}/urlhaus/recent/deltas/{suffix.removesuffix('.json.gz')}.jsonl.gz"
 
     raise ValueError(f"Unsupported raw object key: {raw_object_key}")
+
+
+def build_checkpoint_object_key(raw_bucket: str, source: str, stream: str) -> str:
+    return f"{CHECKPOINT_PREFIX}/{raw_bucket}/{source}/{stream}.json"
 
 
 def build_raw_artifact_event(payload: dict, raw_bucket: str, raw_object_key: str) -> dict:
@@ -396,6 +491,153 @@ def build_raw_artifact_event(payload: dict, raw_bucket: str, raw_object_key: str
             "written_at": payload.get("fetched_at") or payload.get("updated_at"),
         }
     )
+
+
+def get_source_streams(source: str, feed: str) -> list[dict[str, str]]:
+    try:
+        return SOURCE_STREAMS[source][feed]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported source/feed combination: {source}/{feed}") from exc
+
+
+def get_stream_for_raw_object_key(
+    source: str,
+    feed: str,
+    raw_object_key: str,
+) -> dict[str, str]:
+    for stream in get_source_streams(source, feed):
+        if raw_object_key.startswith(stream["raw_prefix"]):
+            return stream
+    raise ValueError(
+        f"Raw object key does not match source/feed streams: {source}/{feed} {raw_object_key}"
+    )
+
+
+def get_raw_prefix_for_stream(source: str, feed: str, stream: str) -> str:
+    for candidate in get_source_streams(source, feed):
+        if candidate["stream"] == stream:
+            return candidate["raw_prefix"]
+    raise ValueError(f"Unsupported stream for source/feed: {source}/{feed}/{stream}")
+
+
+def load_stream_checkpoint(
+    storage: StorageClient,
+    raw_bucket: str,
+    source: str,
+    stream: str,
+) -> dict[str, Any] | None:
+    return read_optional_json_object(
+        storage,
+        PROCESSED_DATA_BUCKET,
+        build_checkpoint_object_key(raw_bucket, source, stream),
+    )
+
+
+def write_stream_checkpoint(
+    storage: StorageClient,
+    raw_bucket: str,
+    source: str,
+    feed: str,
+    stream: str,
+    last_processed_raw_object_key: str | None,
+    last_processed_normalized_object_key: str | None,
+    processed_artifacts_count: int,
+    last_run_started_at: str,
+    last_run_completed_at: str,
+    last_error: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = compact_record(
+        {
+            "schema_version": THREAT_SIGNAL_SCHEMA_VERSION,
+            "raw_bucket": raw_bucket,
+            "raw_prefix": get_raw_prefix_for_stream(source, feed, stream),
+            "source": source,
+            "feed": feed,
+            "stream": stream,
+            "last_processed_raw_object_key": last_processed_raw_object_key,
+            "last_processed_normalized_object_key": last_processed_normalized_object_key,
+            "last_run_started_at": last_run_started_at,
+            "last_run_completed_at": last_run_completed_at,
+            "processed_artifacts_count": processed_artifacts_count,
+            "last_error": last_error,
+        }
+    )
+    write_json_object(
+        storage,
+        PROCESSED_DATA_BUCKET,
+        build_checkpoint_object_key(raw_bucket, source, stream),
+        payload,
+    )
+    return payload
+
+
+def bootstrap_stream_checkpoint(
+    storage: StorageClient,
+    source: str,
+    feed: str,
+    stream: str,
+    raw_prefix: str,
+    raw_bucket: str,
+    normalized_bucket: str = PROCESSED_DATA_BUCKET,
+) -> dict[str, Any] | None:
+    last_processed_raw_object_key = None
+    last_processed_normalized_object_key = None
+    processed_artifacts_count = 0
+
+    for raw_object_key in list_object_names(storage, raw_bucket, raw_prefix):
+        normalized_object_key = build_normalized_object_key(raw_object_key, source)
+        if not object_exists(storage, normalized_bucket, normalized_object_key):
+            break
+        last_processed_raw_object_key = raw_object_key
+        last_processed_normalized_object_key = normalized_object_key
+        processed_artifacts_count += 1
+
+    if last_processed_raw_object_key is None:
+        return None
+
+    started_at = utcnow_iso()
+    return write_stream_checkpoint(
+        storage=storage,
+        raw_bucket=raw_bucket,
+        source=source,
+        feed=feed,
+        stream=stream,
+        last_processed_raw_object_key=last_processed_raw_object_key,
+        last_processed_normalized_object_key=last_processed_normalized_object_key,
+        processed_artifacts_count=processed_artifacts_count,
+        last_run_started_at=started_at,
+        last_run_completed_at=started_at,
+    )
+
+
+def list_stream_pending_raw_object_keys(
+    storage: StorageClient,
+    raw_bucket: str,
+    raw_prefix: str,
+    checkpoint_raw_object_key: str | None = None,
+    replay_from_raw_object_key: str | None = None,
+    replay_limit: int | None = None,
+) -> list[str]:
+    if replay_from_raw_object_key is not None and not replay_from_raw_object_key.startswith(
+        raw_prefix
+    ):
+        return []
+
+    raw_object_keys = list_object_names(
+        storage,
+        raw_bucket,
+        raw_prefix,
+        start_after=checkpoint_raw_object_key if replay_from_raw_object_key is None else None,
+    )
+    if replay_from_raw_object_key is not None:
+        raw_object_keys = [
+            object_key
+            for object_key in raw_object_keys
+            if object_key >= replay_from_raw_object_key
+        ]
+    if replay_limit is not None:
+        raw_object_keys = raw_object_keys[:replay_limit]
+    return raw_object_keys
 
 
 def normalize_raw_artifact(
@@ -422,6 +664,7 @@ def normalize_raw_artifact(
     normalized_object_key = build_normalized_object_key(raw_object_key, source)
     write_normalized_records(storage, normalized_object_key, records)
     return {
+        "schema_version": THREAT_SIGNAL_SCHEMA_VERSION,
         "source": source,
         "raw_bucket": raw_bucket,
         "raw_object_key": raw_object_key,
@@ -432,28 +675,54 @@ def normalize_raw_artifact(
     }
 
 
-def get_source_prefixes(source: str, feed: str) -> list[str]:
-    try:
-        return SOURCE_PREFIXES[source][feed]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported source/feed combination: {source}/{feed}") from exc
-
-
 def list_pending_raw_object_keys(
     source: str,
     feed: str = "recent",
     raw_bucket: str = RAW_FEEDS_BUCKET,
-    normalized_bucket: str = PROCESSED_DATA_BUCKET,
     storage: StorageClient | None = None,
+    replay_from_raw_object_key: str | None = None,
+    replay_limit: int | None = None,
 ) -> list[str]:
     storage = storage or StorageClient()
     pending = []
+    replay_stream = None
+    if replay_from_raw_object_key is not None:
+        replay_stream = get_stream_for_raw_object_key(source, feed, replay_from_raw_object_key)
 
-    for prefix in get_source_prefixes(source, feed):
-        for raw_object_key in list_object_names(storage, raw_bucket, prefix):
-            normalized_object_key = build_normalized_object_key(raw_object_key, source)
-            if not object_exists(storage, normalized_bucket, normalized_object_key):
-                pending.append(raw_object_key)
+    for stream in get_source_streams(source, feed):
+        if replay_stream is not None and stream["stream"] != replay_stream["stream"]:
+            continue
+
+        checkpoint = None
+        if replay_from_raw_object_key is None:
+            checkpoint = load_stream_checkpoint(
+                storage,
+                raw_bucket=raw_bucket,
+                source=source,
+                stream=stream["stream"],
+            )
+            if checkpoint is None:
+                checkpoint = bootstrap_stream_checkpoint(
+                    storage=storage,
+                    source=source,
+                    feed=feed,
+                    stream=stream["stream"],
+                    raw_prefix=stream["raw_prefix"],
+                    raw_bucket=raw_bucket,
+                )
+
+        pending.extend(
+            list_stream_pending_raw_object_keys(
+                storage=storage,
+                raw_bucket=raw_bucket,
+                raw_prefix=stream["raw_prefix"],
+                checkpoint_raw_object_key=(
+                    checkpoint.get("last_processed_raw_object_key") if checkpoint else None
+                ),
+                replay_from_raw_object_key=replay_from_raw_object_key,
+                replay_limit=replay_limit,
+            )
+        )
 
     return pending
 
@@ -463,23 +732,99 @@ def normalize_pending_artifacts(
     feed: str = "recent",
     raw_bucket: str = RAW_FEEDS_BUCKET,
     storage: StorageClient | None = None,
+    replay_from_raw_object_key: str | None = None,
+    replay_limit: int | None = None,
 ) -> list[dict]:
     storage = storage or StorageClient()
     results = []
+    replay_stream = None
+    if replay_from_raw_object_key is not None:
+        replay_stream = get_stream_for_raw_object_key(source, feed, replay_from_raw_object_key)
 
-    for raw_object_key in list_pending_raw_object_keys(
-        source=source,
-        feed=feed,
-        raw_bucket=raw_bucket,
-        storage=storage,
-    ):
-        results.append(
-            normalize_raw_artifact(
-                raw_object_key=raw_object_key,
+    for stream in get_source_streams(source, feed):
+        if replay_stream is not None and stream["stream"] != replay_stream["stream"]:
+            continue
+
+        checkpoint = None
+        if replay_from_raw_object_key is None:
+            checkpoint = load_stream_checkpoint(
+                storage,
                 raw_bucket=raw_bucket,
-                storage=storage,
+                source=source,
+                stream=stream["stream"],
             )
+            if checkpoint is None:
+                checkpoint = bootstrap_stream_checkpoint(
+                    storage=storage,
+                    source=source,
+                    feed=feed,
+                    stream=stream["stream"],
+                    raw_prefix=stream["raw_prefix"],
+                    raw_bucket=raw_bucket,
+                )
+
+        last_processed_raw_object_key = (
+            checkpoint.get("last_processed_raw_object_key") if checkpoint else None
         )
+        last_processed_normalized_object_key = (
+            checkpoint.get("last_processed_normalized_object_key") if checkpoint else None
+        )
+        started_at = utcnow_iso()
+        processed_artifacts_count = 0
+
+        for raw_object_key in list_stream_pending_raw_object_keys(
+            storage=storage,
+            raw_bucket=raw_bucket,
+            raw_prefix=stream["raw_prefix"],
+            checkpoint_raw_object_key=last_processed_raw_object_key,
+            replay_from_raw_object_key=replay_from_raw_object_key,
+            replay_limit=replay_limit,
+        ):
+            try:
+                result = normalize_raw_artifact(
+                    raw_object_key=raw_object_key,
+                    raw_bucket=raw_bucket,
+                    storage=storage,
+                )
+            except Exception as exc:
+                if replay_from_raw_object_key is None:
+                    write_stream_checkpoint(
+                        storage=storage,
+                        raw_bucket=raw_bucket,
+                        source=source,
+                        feed=feed,
+                        stream=stream["stream"],
+                        last_processed_raw_object_key=last_processed_raw_object_key,
+                        last_processed_normalized_object_key=last_processed_normalized_object_key,
+                        processed_artifacts_count=processed_artifacts_count,
+                        last_run_started_at=started_at,
+                        last_run_completed_at=utcnow_iso(),
+                        last_error={
+                            "raw_object_key": raw_object_key,
+                            "error": str(exc),
+                            "at": utcnow_iso(),
+                        },
+                    )
+                raise
+
+            results.append(result)
+            processed_artifacts_count += 1
+            last_processed_raw_object_key = raw_object_key
+            last_processed_normalized_object_key = result["normalized_object_key"]
+
+            if replay_from_raw_object_key is None:
+                write_stream_checkpoint(
+                    storage=storage,
+                    raw_bucket=raw_bucket,
+                    source=source,
+                    feed=feed,
+                    stream=stream["stream"],
+                    last_processed_raw_object_key=last_processed_raw_object_key,
+                    last_processed_normalized_object_key=last_processed_normalized_object_key,
+                    processed_artifacts_count=processed_artifacts_count,
+                    last_run_started_at=started_at,
+                    last_run_completed_at=utcnow_iso(),
+                )
 
     return results
 
@@ -495,7 +840,7 @@ def run() -> None:
     )
     target_group.add_argument(
         "--source",
-        choices=sorted(SOURCE_PREFIXES.keys()),
+        choices=sorted(SOURCE_STREAMS.keys()),
         help="Normalize all pending raw artifacts for a source/feed.",
     )
     parser.add_argument(
@@ -508,7 +853,23 @@ def run() -> None:
         default=RAW_FEEDS_BUCKET,
         help="Raw object bucket. Defaults to raw-feeds.",
     )
+    parser.add_argument(
+        "--replay-from-raw-object-key",
+        help="Replay normalization from a specific raw object key for the selected source/feed.",
+    )
+    parser.add_argument(
+        "--replay-limit",
+        type=int,
+        help="Maximum number of raw artifacts to replay when using --replay-from-raw-object-key.",
+    )
     args = parser.parse_args()
+
+    if args.replay_limit is not None and args.replay_limit < 1:
+        parser.error("--replay-limit must be greater than zero.")
+    if args.replay_limit is not None and not args.replay_from_raw_object_key:
+        parser.error("--replay-limit requires --replay-from-raw-object-key.")
+    if args.raw_object_key and args.replay_from_raw_object_key:
+        parser.error("--replay-from-raw-object-key cannot be used with --raw-object-key.")
 
     if args.raw_object_key:
         result = normalize_raw_artifact(
@@ -522,12 +883,18 @@ def run() -> None:
         source=args.source,
         feed=args.feed,
         raw_bucket=args.raw_bucket,
+        replay_from_raw_object_key=args.replay_from_raw_object_key,
+        replay_limit=args.replay_limit,
     )
     print(
         json.dumps(
             {
+                "schema_version": THREAT_SIGNAL_SCHEMA_VERSION,
                 "source": args.source,
                 "feed": args.feed,
+                "raw_bucket": args.raw_bucket,
+                "replay_from_raw_object_key": args.replay_from_raw_object_key,
+                "replay_limit": args.replay_limit,
                 "processed_artifacts": len(results),
                 "results": results,
             },

@@ -83,6 +83,15 @@ def _write_gzip_json_object(
     )
 
 
+def _read_json_object(client: StorageClient, bucket: str, object_key: str) -> dict:
+    response = client.get_client().get_object(bucket, object_key)
+    try:
+        return json.loads(response.read().decode("utf-8"))
+    finally:
+        response.close()
+        response.release_conn()
+
+
 def _wait_for_object(bucket: str, object_key: str, timeout_seconds: float = 5.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     while True:
@@ -115,7 +124,10 @@ def test_threatfox_normalization_runs_in_cluster():
 
     raw_object_key = f"threatfox/recent/2099/12/31/235959Z-{uuid.uuid4().hex[:8]}.json"
     normalized_object_key = (
-        raw_object_key.replace("threatfox/recent/", "normalized/threat-signals/threatfox/recent/")
+        raw_object_key.replace(
+            "threatfox/recent/",
+            "normalized/threat-signals/threat_signal.v1/threatfox/recent/",
+        )
         .removesuffix(".json")
         + ".jsonl.gz"
     )
@@ -171,7 +183,7 @@ def test_cisa_kev_catalog_normalization_runs_in_cluster():
     normalized_object_key = (
         raw_object_key.replace(
             "cisa-kev/catalog/",
-            "normalized/threat-signals/cisa-kev/catalog/",
+            "normalized/threat-signals/threat_signal.v1/cisa-kev/catalog/",
         ).removesuffix(".json")
         + ".jsonl.gz"
     )
@@ -231,7 +243,7 @@ def test_urlhaus_checkpoint_normalization_runs_in_cluster():
     normalized_object_key = (
         raw_object_key.replace(
             "urlhaus/checkpoints/",
-            "normalized/threat-signals/urlhaus/recent/checkpoints/",
+            "normalized/threat-signals/threat_signal.v1/urlhaus/recent/checkpoints/",
         ).removesuffix(".json.gz")
         + ".jsonl.gz"
     )
@@ -277,7 +289,10 @@ def test_urlhaus_delta_normalization_runs_in_cluster():
 
     raw_object_key = f"urlhaus/deltas/2099/12/31/{uuid.uuid4().hex}.json.gz"
     normalized_object_key = (
-        raw_object_key.replace("urlhaus/deltas/", "normalized/threat-signals/urlhaus/recent/deltas/")
+        raw_object_key.replace(
+            "urlhaus/deltas/",
+            "normalized/threat-signals/threat_signal.v1/urlhaus/recent/deltas/",
+        )
         .removesuffix(".json.gz")
         + ".jsonl.gz"
     )
@@ -326,3 +341,98 @@ def test_urlhaus_delta_normalization_runs_in_cluster():
     assert normalized_rows[0]["artifact_type"] == "url"
     assert normalized_rows[0]["artifact_value"] == "http://221.200.214.87:54591/i"
     assert normalized_rows[0]["action"] == "observed"
+
+
+def test_threatfox_checkpoint_bootstrap_and_rerun_are_incremental():
+    client = _storage_client()
+    bootstrap_bucket = f"raw-bootstrap-{uuid.uuid4().hex[:8]}"
+    client.ensure_bucket(bootstrap_bucket)
+
+    first_raw_object_key = "threatfox/recent/2099/12/30/235959Z-bootstrap-a.json"
+    second_raw_object_key = "threatfox/recent/2099/12/31/235959Z-bootstrap-b.json"
+    first_normalized_object_key = (
+        "normalized/threat-signals/threat_signal.v1/threatfox/recent/2099/12/30/235959Z-bootstrap-a.jsonl.gz"
+    )
+    second_normalized_object_key = (
+        "normalized/threat-signals/threat_signal.v1/threatfox/recent/2099/12/31/235959Z-bootstrap-b.jsonl.gz"
+    )
+    checkpoint_object_key = (
+        f"normalization-state/threat-signal/threat_signal.v1/{bootstrap_bucket}/threatfox/recent.json"
+    )
+
+    first_payload = {
+        "source": "threatfox",
+        "feed": "recent",
+        "fetched_at": "2099-12-30T23:59:59+00:00",
+        "service": "threatfox-ingestion",
+        "data": {
+            "query_status": "ok",
+            "data": [
+                {
+                    "id": "1765567",
+                    "ioc": "bootstrap-a.example",
+                    "threat_type": "payload_delivery",
+                    "ioc_type": "domain",
+                    "first_seen": "2099-12-30 21:47:34 UTC",
+                    "last_seen": "2099-12-30 21:47:41 UTC",
+                }
+            ],
+        },
+    }
+    second_payload = {
+        "source": "threatfox",
+        "feed": "recent",
+        "fetched_at": "2099-12-31T23:59:59+00:00",
+        "service": "threatfox-ingestion",
+        "data": {
+            "query_status": "ok",
+            "data": [
+                {
+                    "id": "1765568",
+                    "ioc": "bootstrap-b.example",
+                    "threat_type": "payload_delivery",
+                    "ioc_type": "domain",
+                    "first_seen": "2099-12-31 21:47:34 UTC",
+                    "last_seen": "2099-12-31 21:47:41 UTC",
+                }
+            ],
+        },
+    }
+    _write_json_object(client, bootstrap_bucket, first_raw_object_key, first_payload)
+    _write_json_object(client, bootstrap_bucket, second_raw_object_key, second_payload)
+    _wait_for_object(bootstrap_bucket, first_raw_object_key)
+    _wait_for_object(bootstrap_bucket, second_raw_object_key)
+
+    _run_normalizer(
+        "--raw-object-key",
+        first_raw_object_key,
+        "--raw-bucket",
+        bootstrap_bucket,
+    )
+
+    run_result = _run_normalizer(
+        "--source",
+        "threatfox",
+        "--raw-bucket",
+        bootstrap_bucket,
+    )
+    assert run_result["processed_artifacts"] == 1
+    assert [result["raw_object_key"] for result in run_result["results"]] == [
+        second_raw_object_key
+    ]
+
+    checkpoint = _read_json_object(client, PROCESSED_BUCKET, checkpoint_object_key)
+    assert checkpoint["last_processed_raw_object_key"] == second_raw_object_key
+    assert checkpoint["last_processed_normalized_object_key"] == second_normalized_object_key
+
+    normalized_rows = _read_json_gzip_object(client, PROCESSED_BUCKET, second_normalized_object_key)
+    assert len(normalized_rows) == 1
+    _assert_schema_valid(normalized_rows)
+
+    rerun_result = _run_normalizer(
+        "--source",
+        "threatfox",
+        "--raw-bucket",
+        bootstrap_bucket,
+    )
+    assert rerun_result["processed_artifacts"] == 0

@@ -303,28 +303,39 @@ def test_build_normalized_object_key_matches_phase1_layout():
             "cisa-kev/catalog/2026/03/21/020500Z.json",
             "cisa-kev",
         )
-        == "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
+        == "normalized/threat-signals/threat_signal.v1/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
     )
     assert (
         normalizer.build_normalized_object_key(
             "threatfox/recent/2026/03/14/173753Z.json",
             "threatfox",
         )
-        == "normalized/threat-signals/threatfox/recent/2026/03/14/173753Z.jsonl.gz"
+        == "normalized/threat-signals/threat_signal.v1/threatfox/recent/2026/03/14/173753Z.jsonl.gz"
     )
     assert (
         normalizer.build_normalized_object_key(
             "urlhaus/checkpoints/2026/03/19/000000Z.json.gz",
             "urlhaus",
         )
-        == "normalized/threat-signals/urlhaus/recent/checkpoints/2026/03/19/000000Z.jsonl.gz"
+        == "normalized/threat-signals/threat_signal.v1/urlhaus/recent/checkpoints/2026/03/19/000000Z.jsonl.gz"
     )
     assert (
         normalizer.build_normalized_object_key(
             "urlhaus/deltas/2026/03/19/abc123.json.gz",
             "urlhaus",
         )
-        == "normalized/threat-signals/urlhaus/recent/deltas/2026/03/19/abc123.jsonl.gz"
+        == "normalized/threat-signals/threat_signal.v1/urlhaus/recent/deltas/2026/03/19/abc123.jsonl.gz"
+    )
+
+
+def test_build_checkpoint_object_key_uses_versioned_storage_prefix():
+    assert (
+        normalizer.build_checkpoint_object_key(
+            "raw-feeds-bootstrap-test",
+            "threatfox",
+            "recent",
+        )
+        == "normalization-state/threat-signal/threat_signal.v1/raw-feeds-bootstrap-test/threatfox/recent.json"
     )
 
 
@@ -362,11 +373,12 @@ def test_normalize_raw_artifact_writes_gzipped_jsonl():
     )
 
     assert result == {
+        "schema_version": "threat_signal.v1",
         "source": "threatfox",
         "raw_bucket": "raw-feeds",
         "raw_object_key": "threatfox/recent/2026/03/14/173753Z.json",
         "normalized_bucket": "processed-data",
-        "normalized_object_key": "normalized/threat-signals/threatfox/recent/2026/03/14/173753Z.jsonl.gz",
+        "normalized_object_key": "normalized/threat-signals/threat_signal.v1/threatfox/recent/2026/03/14/173753Z.jsonl.gz",
         "records_count": 1,
         "trigger_event": {
             "event_type": "raw_artifact_written",
@@ -378,7 +390,7 @@ def test_normalize_raw_artifact_writes_gzipped_jsonl():
     }
     put_call = minio_client.put_object.call_args
     assert put_call.args[0] == "processed-data"
-    assert put_call.args[1] == "normalized/threat-signals/threatfox/recent/2026/03/14/173753Z.jsonl.gz"
+    assert put_call.args[1] == "normalized/threat-signals/threat_signal.v1/threatfox/recent/2026/03/14/173753Z.jsonl.gz"
     assert put_call.kwargs["content_type"] == "application/gzip"
     payload = gzip.decompress(put_call.args[2].read()).decode("utf-8").splitlines()
     assert len(payload) == 1
@@ -439,11 +451,12 @@ def test_normalize_raw_artifact_writes_cisa_kev_jsonl():
     )
 
     assert result == {
+        "schema_version": "threat_signal.v1",
         "source": "cisa-kev",
         "raw_bucket": "raw-feeds",
         "raw_object_key": "cisa-kev/catalog/2026/03/21/020500Z.json",
         "normalized_bucket": "processed-data",
-        "normalized_object_key": "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz",
+        "normalized_object_key": "normalized/threat-signals/threat_signal.v1/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz",
         "records_count": 1,
         "trigger_event": {
             "event_type": "raw_artifact_written",
@@ -457,7 +470,7 @@ def test_normalize_raw_artifact_writes_cisa_kev_jsonl():
     assert put_call.args[0] == "processed-data"
     assert (
         put_call.args[1]
-        == "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
+        == "normalized/threat-signals/threat_signal.v1/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
     )
     assert put_call.kwargs["content_type"] == "application/gzip"
     payload = gzip.decompress(put_call.args[2].read()).decode("utf-8").splitlines()
@@ -465,10 +478,15 @@ def test_normalize_raw_artifact_writes_cisa_kev_jsonl():
     assert json.loads(payload[0])["artifact_value"] == "CVE-2026-0001"
 
 
-def test_list_pending_raw_object_keys_skips_existing_normalized_outputs():
+def test_bootstrap_stream_checkpoint_uses_highest_contiguous_normalized_output():
     storage = Mock()
     minio_client = Mock()
     storage.get_client.return_value = minio_client
+    minio_client.stat_object.side_effect = [
+        Mock(),
+        Mock(),
+        type("NoSuchKeyError", (Exception,), {"code": "NoSuchKey"})(),
+    ]
 
     def list_objects(bucket, prefix, recursive):
         assert recursive is True
@@ -477,25 +495,69 @@ def test_list_pending_raw_object_keys_skips_existing_normalized_outputs():
             first.object_name = "threatfox/recent/2026/03/14/173753Z.json"
             second = Mock()
             second.object_name = "threatfox/recent/2026/03/14/183753Z.json"
-            return [first, second]
+            third = Mock()
+            third.object_name = "threatfox/recent/2026/03/14/193753Z.json"
+            return [first, second, third]
+        return []
+
+    minio_client.list_objects.side_effect = list_objects
+    minio_client.put_object = Mock()
+
+    checkpoint = normalizer.bootstrap_stream_checkpoint(
+        storage=storage,
+        source="threatfox",
+        feed="recent",
+        stream="recent",
+        raw_prefix="threatfox/recent/",
+        raw_bucket="raw-feeds",
+    )
+
+    assert checkpoint["last_processed_raw_object_key"] == "threatfox/recent/2026/03/14/183753Z.json"
+    assert (
+        checkpoint["last_processed_normalized_object_key"]
+        == "normalized/threat-signals/threat_signal.v1/threatfox/recent/2026/03/14/183753Z.jsonl.gz"
+    )
+    put_call = minio_client.put_object.call_args
+    assert put_call.args[1] == "normalization-state/threat-signal/threat_signal.v1/raw-feeds/threatfox/recent.json"
+
+
+def test_list_pending_raw_object_keys_uses_checkpoint_progress():
+    storage = Mock()
+    minio_client = Mock()
+    storage.get_client.return_value = minio_client
+
+    def list_objects(bucket, prefix, recursive, start_after=None):
+        assert recursive is True
         if (
-            bucket == "processed-data"
-            and prefix
-            == "normalized/threat-signals/threatfox/recent/2026/03/14/173753Z.jsonl.gz"
+            bucket == "raw-feeds"
+            and prefix == "threatfox/recent/"
+            and start_after == "threatfox/recent/2026/03/14/173753Z.json"
         ):
-            existing = Mock()
-            existing.object_name = prefix
-            return [existing]
+            first = Mock()
+            first.object_name = "threatfox/recent/2026/03/14/183753Z.json"
+            second = Mock()
+            second.object_name = "threatfox/recent/2026/03/14/193753Z.json"
+            return [first, second]
         return []
 
     minio_client.list_objects.side_effect = list_objects
 
-    pending = normalizer.list_pending_raw_object_keys(
-        source="threatfox",
-        storage=storage,
-    )
+    with patch.object(
+        normalizer,
+        "load_stream_checkpoint",
+        return_value={
+            "last_processed_raw_object_key": "threatfox/recent/2026/03/14/173753Z.json"
+        },
+    ):
+        pending = normalizer.list_pending_raw_object_keys(
+            source="threatfox",
+            storage=storage,
+        )
 
-    assert pending == ["threatfox/recent/2026/03/14/183753Z.json"]
+    assert pending == [
+        "threatfox/recent/2026/03/14/183753Z.json",
+        "threatfox/recent/2026/03/14/193753Z.json",
+    ]
 
 
 def test_list_pending_raw_object_keys_supports_cisa_kev_catalog_feed():
@@ -503,31 +565,32 @@ def test_list_pending_raw_object_keys_supports_cisa_kev_catalog_feed():
     minio_client = Mock()
     storage.get_client.return_value = minio_client
 
-    def list_objects(bucket, prefix, recursive):
+    def list_objects(bucket, prefix, recursive, start_after=None):
         assert recursive is True
-        if bucket == "raw-feeds" and prefix == "cisa-kev/catalog/":
-            first = Mock()
-            first.object_name = "cisa-kev/catalog/2026/03/21/020500Z.json"
-            second = Mock()
-            second.object_name = "cisa-kev/catalog/2026/03/22/020500Z.json"
-            return [first, second]
         if (
-            bucket == "processed-data"
-            and prefix
-            == "normalized/threat-signals/cisa-kev/catalog/2026/03/21/020500Z.jsonl.gz"
+            bucket == "raw-feeds"
+            and prefix == "cisa-kev/catalog/"
+            and start_after == "cisa-kev/catalog/2026/03/21/020500Z.json"
         ):
-            existing = Mock()
-            existing.object_name = prefix
-            return [existing]
+            first = Mock()
+            first.object_name = "cisa-kev/catalog/2026/03/22/020500Z.json"
+            return [first]
         return []
 
     minio_client.list_objects.side_effect = list_objects
 
-    pending = normalizer.list_pending_raw_object_keys(
-        source="cisa-kev",
-        feed="catalog",
-        storage=storage,
-    )
+    with patch.object(
+        normalizer,
+        "load_stream_checkpoint",
+        return_value={
+            "last_processed_raw_object_key": "cisa-kev/catalog/2026/03/21/020500Z.json"
+        },
+    ):
+        pending = normalizer.list_pending_raw_object_keys(
+            source="cisa-kev",
+            feed="catalog",
+            storage=storage,
+        )
 
     assert pending == ["cisa-kev/catalog/2026/03/22/020500Z.json"]
 
@@ -535,26 +598,87 @@ def test_list_pending_raw_object_keys_supports_cisa_kev_catalog_feed():
 def test_normalize_pending_artifacts_processes_all_missing_objects():
     with patch.object(
         normalizer,
-        "list_pending_raw_object_keys",
+        "get_source_streams",
         return_value=[
-            "urlhaus/checkpoints/2026/03/19/000000Z.json.gz",
-            "urlhaus/deltas/2026/03/19/abc123.json.gz",
+            {"stream": "checkpoints", "raw_prefix": "urlhaus/checkpoints/"},
+            {"stream": "deltas", "raw_prefix": "urlhaus/deltas/"},
+        ],
+    ), patch.object(
+        normalizer,
+        "load_stream_checkpoint",
+        return_value=None,
+    ), patch.object(
+        normalizer,
+        "bootstrap_stream_checkpoint",
+        return_value=None,
+    ), patch.object(
+        normalizer,
+        "list_stream_pending_raw_object_keys",
+        side_effect=[
+            ["urlhaus/checkpoints/2026/03/19/000000Z.json.gz"],
+            ["urlhaus/deltas/2026/03/19/abc123.json.gz"],
         ],
     ), patch.object(
         normalizer,
         "normalize_raw_artifact",
         side_effect=[
-            {"raw_object_key": "urlhaus/checkpoints/2026/03/19/000000Z.json.gz"},
-            {"raw_object_key": "urlhaus/deltas/2026/03/19/abc123.json.gz"},
+            {"raw_object_key": "urlhaus/checkpoints/2026/03/19/000000Z.json.gz", "normalized_object_key": "normalized/threat-signals/threat_signal.v1/urlhaus/recent/checkpoints/2026/03/19/000000Z.jsonl.gz"},
+            {"raw_object_key": "urlhaus/deltas/2026/03/19/abc123.json.gz", "normalized_object_key": "normalized/threat-signals/threat_signal.v1/urlhaus/recent/deltas/2026/03/19/abc123.jsonl.gz"},
         ],
-    ) as normalize_raw_artifact:
+    ) as normalize_raw_artifact, patch.object(
+        normalizer,
+        "write_stream_checkpoint",
+    ) as write_stream_checkpoint:
         results = normalizer.normalize_pending_artifacts(
             source="urlhaus",
             storage=Mock(),
         )
 
     assert results == [
-        {"raw_object_key": "urlhaus/checkpoints/2026/03/19/000000Z.json.gz"},
-        {"raw_object_key": "urlhaus/deltas/2026/03/19/abc123.json.gz"},
+        {
+            "raw_object_key": "urlhaus/checkpoints/2026/03/19/000000Z.json.gz",
+            "normalized_object_key": "normalized/threat-signals/threat_signal.v1/urlhaus/recent/checkpoints/2026/03/19/000000Z.jsonl.gz",
+        },
+        {
+            "raw_object_key": "urlhaus/deltas/2026/03/19/abc123.json.gz",
+            "normalized_object_key": "normalized/threat-signals/threat_signal.v1/urlhaus/recent/deltas/2026/03/19/abc123.jsonl.gz",
+        },
     ]
     assert normalize_raw_artifact.call_count == 2
+    assert write_stream_checkpoint.call_count == 2
+
+
+def test_normalize_pending_artifacts_replay_limit_skips_checkpoint_updates():
+    with patch.object(
+        normalizer,
+        "get_source_streams",
+        return_value=[{"stream": "recent", "raw_prefix": "threatfox/recent/"}],
+    ), patch.object(
+        normalizer,
+        "list_stream_pending_raw_object_keys",
+        return_value=["threatfox/recent/2026/03/14/173753Z.json"],
+    ), patch.object(
+        normalizer,
+        "normalize_raw_artifact",
+        return_value={
+            "raw_object_key": "threatfox/recent/2026/03/14/173753Z.json",
+            "normalized_object_key": "normalized/threat-signals/threat_signal.v1/threatfox/recent/2026/03/14/173753Z.jsonl.gz",
+        },
+    ), patch.object(
+        normalizer,
+        "write_stream_checkpoint",
+    ) as write_stream_checkpoint:
+        results = normalizer.normalize_pending_artifacts(
+            source="threatfox",
+            replay_from_raw_object_key="threatfox/recent/2026/03/14/173753Z.json",
+            replay_limit=1,
+            storage=Mock(),
+        )
+
+    assert results == [
+        {
+            "raw_object_key": "threatfox/recent/2026/03/14/173753Z.json",
+            "normalized_object_key": "normalized/threat-signals/threat_signal.v1/threatfox/recent/2026/03/14/173753Z.jsonl.gz",
+        }
+    ]
+    write_stream_checkpoint.assert_not_called()
